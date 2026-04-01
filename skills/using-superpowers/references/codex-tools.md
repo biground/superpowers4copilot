@@ -1,52 +1,49 @@
-# Codex Tool Mapping
+# Codex 工具映射
 
-Skills use Claude Code tool names. When you encounter these in a skill, use your platform equivalent:
+技能使用 Claude Code 的工具名称。当你在技能中遇到这些工具名时，请使用你所在平台的对应工具：
 
-| Skill references | Codex equivalent |
+| 技能中引用的工具 | Codex 对应工具 |
 |-----------------|------------------|
-| `Task` tool (dispatch subagent) | `spawn_agent` (see [Named agent dispatch](#named-agent-dispatch)) |
-| Multiple `Task` calls (parallel) | Multiple `spawn_agent` calls |
-| Task returns result | `wait` |
-| Task completes automatically | `close_agent` to free slot |
-| `TodoWrite` (task tracking) | `update_plan` |
-| `Skill` tool (invoke a skill) | Skills load natively — just follow the instructions |
-| `Read`, `Write`, `Edit` (files) | Use your native file tools |
-| `Bash` (run commands) | Use your native shell tools |
+| `Task` 工具（分派子代理） | `spawn_agent`（参见[命名代理分派](#命名代理分派)） |
+| 多次 `Task` 调用（并行） | 多次 `spawn_agent` 调用 |
+| Task 返回结果 | `wait` |
+| Task 自动完成 | `close_agent` 释放槽位 |
+| `TodoWrite`（任务跟踪） | `update_plan` |
+| `Skill` 工具（调用技能） | 技能原生加载——直接遵循指令即可 |
+| `Read`、`Write`、`Edit`（文件操作） | 使用你的原生文件工具 |
+| `Bash`（运行命令） | 使用你的原生 shell 工具 |
 
-## Subagent dispatch requires multi-agent support
+## 子代理分派需要多代理支持
 
-Add to your Codex config (`~/.codex/config.toml`):
+在你的 Codex 配置（`~/.codex/config.toml`）中添加：
 
 ```toml
 [features]
 multi_agent = true
 ```
 
-This enables `spawn_agent`, `wait`, and `close_agent` for skills like `dispatching-parallel-agents` and `subagent-driven-development`.
+这将启用 `spawn_agent`、`wait` 和 `close_agent`，用于 `dispatching-parallel-agents` 和 `subagent-driven-development` 等技能。
 
-## Named agent dispatch
+## 命名代理分派
 
-Claude Code skills reference named agent types like `superpowers:code-reviewer`.
-Codex does not have a named agent registry — `spawn_agent` creates generic agents
-from built-in roles (`default`, `explorer`, `worker`).
+Claude Code 技能引用了命名代理类型，如 `superpowers:code-reviewer`。
+Codex 没有命名代理注册表——`spawn_agent` 从内置角色（`default`、`explorer`、`worker`）创建通用代理。
 
-When a skill says to dispatch a named agent type:
+当技能要求分派命名代理类型时：
 
-1. Find the agent's prompt file (e.g., `agents/code-reviewer.md` or the skill's
-   local prompt template like `code-quality-reviewer-prompt.md`)
-2. Read the prompt content
-3. Fill any template placeholders (`{BASE_SHA}`, `{WHAT_WAS_IMPLEMENTED}`, etc.)
-4. Spawn a `worker` agent with the filled content as the `message`
+1. 找到该代理的提示文件（例如 `agents/code-reviewer.md` 或技能本地的提示模板如 `code-quality-reviewer-prompt.md`）
+2. 读取提示内容
+3. 填充所有模板占位符（`{BASE_SHA}`、`{WHAT_WAS_IMPLEMENTED}` 等）
+4. 使用填充后的内容作为 `message` 生成一个 `worker` 代理
 
-| Skill instruction | Codex equivalent |
-|-------------------|------------------|
-| `Task tool (superpowers:code-reviewer)` | `spawn_agent(agent_type="worker", message=...)` with `code-reviewer.md` content |
-| `Task tool (general-purpose)` with inline prompt | `spawn_agent(message=...)` with the same prompt |
+| 技能指令 | Codex 对应操作 |
+|----------|----------------|
+| `Task tool (superpowers:code-reviewer)` | `spawn_agent(agent_type="worker", message=...)` 使用 `code-reviewer.md` 内容 |
+| `Task tool (general-purpose)` 带内联提示 | `spawn_agent(message=...)` 使用相同的提示 |
 
-### Message framing
+### 消息构造
 
-The `message` parameter is user-level input, not a system prompt. Structure it
-for maximum instruction adherence:
+`message` 参数是用户级输入，不是系统提示（system prompt）。按以下方式构造以最大化指令遵循度：
 
 ```
 Your task is to perform the following. Follow the instructions below exactly.
@@ -59,21 +56,17 @@ Execute this now. Output ONLY the structured response following the format
 specified in the instructions above.
 ```
 
-- Use task-delegation framing ("Your task is...") rather than persona framing ("You are...")
-- Wrap instructions in XML tags — the model treats tagged blocks as authoritative
-- End with an explicit execution directive to prevent summarization of the instructions
+- 使用任务委派式措辞（"Your task is..."）而非人设式措辞（"You are..."）
+- 用 XML 标签包裹指令——模型会将标签包裹的内容视为权威信息
+- 以明确的执行指令结尾，防止模型仅总结指令而不执行
 
-### When this workaround can be removed
+### 何时可以移除此变通方案
 
-This approach compensates for Codex's plugin system not yet supporting an `agents`
-field in `plugin.json`. When `RawPluginManifest` gains an `agents` field, the
-plugin can symlink to `agents/` (mirroring the existing `skills/` symlink) and
-skills can dispatch named agent types directly.
+此方法是因为 Codex 的插件系统尚不支持 `plugin.json` 中的 `agents` 字段而采用的变通方案。当 `RawPluginManifest` 增加 `agents` 字段后，插件可以创建到 `agents/` 的符号链接（与现有的 `skills/` 符号链接类似），技能就可以直接分派命名代理类型。
 
-## Environment Detection
+## 环境检测
 
-Skills that create worktrees or finish branches should detect their
-environment with read-only git commands before proceeding:
+创建工作树（worktree）或完成分支（branch）的技能应在执行前使用只读的 git 命令检测其环境：
 
 ```bash
 GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
@@ -81,20 +74,17 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
 BRANCH=$(git branch --show-current)
 ```
 
-- `GIT_DIR != GIT_COMMON` → already in a linked worktree (skip creation)
-- `BRANCH` empty → detached HEAD (cannot branch/push/PR from sandbox)
+- `GIT_DIR != GIT_COMMON` → 已在链接的工作树中（跳过创建）
+- `BRANCH` 为空 → HEAD 处于分离状态（detached HEAD）（无法从沙箱进行分支/推送/PR 操作）
 
-See `using-git-worktrees` Step 0 and `finishing-a-development-branch`
-Step 1 for how each skill uses these signals.
+参见 `using-git-worktrees` 步骤 0 和 `finishing-a-development-branch`
+步骤 1 了解每个技能如何使用这些信号。
 
-## Codex App Finishing
+## Codex App 收尾
 
-When the sandbox blocks branch/push operations (detached HEAD in an
-externally managed worktree), the agent commits all work and informs
-the user to use the App's native controls:
+当沙箱阻止分支/推送操作时（外部管理的工作树中处于 detached HEAD 状态），代理会提交所有工作并告知用户使用 App 的原生控件：
 
-- **"Create branch"** — names the branch, then commit/push/PR via App UI
-- **"Hand off to local"** — transfers work to the user's local checkout
+- **"Create branch"**——命名分支，然后通过 App UI 进行提交/推送/PR
+- **"Hand off to local"**——将工作转移到用户的本地检出
 
-The agent can still run tests, stage files, and output suggested branch
-names, commit messages, and PR descriptions for the user to copy.
+代理仍然可以运行测试、暂存文件，并输出建议的分支名、提交信息和 PR 描述供用户复制。
