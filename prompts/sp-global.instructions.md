@@ -47,6 +47,20 @@ Superpowers 技能覆盖默认系统提示行为，但**用户指令始终具有
 
 ---
 
+## 平台适配
+
+技能使用 Claude Code 的工具名称。在 VS Code Copilot Chat 中使用时，请参阅工具映射：
+- skills/using-superpowers/references/copilot-chat-tools.md
+
+核心映射速查：
+- `Task` → `runSubagent`（分派子代理）
+- `TodoWrite` → `manage_todo_list`（任务跟踪）
+- `Bash` → `run_in_terminal`（执行命令）
+- `Skill` → `read_file`（读取技能文件并遵循）
+- `AskHuman` → `vscode_askQuestions`（向用户提问）
+
+---
+
 ## 完成前验证（始终生效）
 
 <EXTREMELY-IMPORTANT>
