@@ -115,3 +115,22 @@ digraph skill_flow {
 ## 用户指令
 
 指令说的是**做什么**，而不是**怎么做**。"添加 X"或"修复 Y"不代表跳过工作流。
+
+## 可用 Agents
+
+除了技能（skills）外，以下专业 agents 也可在工作流中调用：
+
+| Agent | 用途 | 触发方式 |
+|-------|------|----------|
+| `gem-orchestrator` | 多 agent 编排，全局流程管理 | `@gem-orchestrator` 或作为主 agent 使用 |
+| `gem-researcher` | 代码库探索、模式发现 | `@gem-researcher` 或由 orchestrator 分派 |
+| `gem-planner` | DAG 计划生成 | `@gem-planner` 或由 orchestrator 分派 |
+| `gem-implementer` | TDD 实现 + 端到端调试 | `@gem-implementer` 或由 orchestrator 分派 |
+| `gem-reviewer` | 自动基线代码审查 | `@gem-reviewer` 或自动触发 |
+| `gem-critic` | 批判性设计审查 | `@gem-critic`（手动触发）|
+| `gem-documentation-writer` | 代码文档 | `@gem-documentation-writer` |
+| `se-technical-writer` | 技术博客/教程/ADR | `@se-technical-writer` |
+| `narrative-writer` | Obsidian 叙事笔记 | `@narrative-writer` |
+| `code-reviewer` | 深度计划对齐审查 | `@code-reviewer` |
+
+Agents 和 Skills 的关系：Skills 定义质量纪律（HOW），Agents 提供专业能力（WHO）。两者互补。

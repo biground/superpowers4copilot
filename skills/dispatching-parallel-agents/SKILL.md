@@ -180,3 +180,15 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 - 所有调查并发完成
 - 所有修复成功整合
 - 代理变更之间零冲突
+
+## Gem Agent 并行分派
+
+如果安装了 Gem agents，以下 agents 特别适合并行分派：
+
+| Agent | 并行场景 | 最大并发 |
+|-------|---------|----------|
+| `gem-researcher` | 多领域/多模块研究 | 4 |
+| `gem-implementer` | 同一 wave 内无冲突的实现任务 | 4（fast 模式 6-8）|
+| `gem-reviewer` + `gem-critic` | 审查和批判可并行运行 | 各 1 |
+
+分派 Gem agents 时同样遵守本技能的冲突检查规则：共享相同文件的任务必须串行。

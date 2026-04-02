@@ -275,3 +275,16 @@ digraph process {
 
 **替代工作流：**
 - **superpowers:executing-plans** - 用于并行会话而非同一会话执行
+
+## Gem Agent 子代理
+
+如果安装了 Gem agents，它们可以作为专业子代理被分派：
+
+| 任务类型 | 推荐子代理 | 说明 |
+|---------|-----------|------|
+| 代码实现 | `gem-implementer` | 自带 TDD 纪律和端到端调试 |
+| 自动代码审查 | `gem-reviewer` | 替代通用审查子代理做基线检查 |
+| 代码文档 | `gem-documentation-writer` | API docs、README |
+| 技术写作 | `se-technical-writer` | 博客、教程、ADR |
+
+选择指南：当任务需要特定领域专业能力时使用 Gem agent；当任务是通用的或不确定类型时使用普通子代理。

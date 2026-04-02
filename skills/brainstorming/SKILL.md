@@ -162,3 +162,10 @@ Spec 自审通过后，请用户在继续之前审阅已编写的 spec：
 
 如果他们同意使用视觉伴侣，在继续之前请阅读详细指南：
 `skills/brainstorming/visual-companion.md`
+
+## 批判性审查（可选）
+
+如果安装了 `gem-critic`，在方案提出后可以调用它进行压力测试：
+- 在 2-3 种方案呈现给用户之前或之后，`@gem-critic` 可以挑战假设、发现边界情况、识别过度设计
+- 这不是必需步骤，但对复杂架构决策特别有价值
+- gem-critic 的 verdict 分三级：blocking（必须修复）、warning（建议修复）、suggestion（参考）

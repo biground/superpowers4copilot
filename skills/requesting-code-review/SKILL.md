@@ -103,3 +103,11 @@ HEAD_SHA=$(git rev-parse HEAD)
 - 请求澄清
 
 参见模板：requesting-code-review/code-reviewer.md
+
+## Gem Agent 审查替代
+
+如果安装了 `gem-reviewer`，可以作为自动基线审查的替代路径：
+- **gem-reviewer**：自动运行，每个 wave 后触发。覆盖安全扫描、lint、build、PRD 合规。只报告 Critical/Important。
+- **code-reviewer**（原有）：深度审查，关注计划对齐、架构设计、代码模式。适合重大步骤完成后。
+
+推荐组合：gem-reviewer 做每次 wave 的自动基线 → code-reviewer 做关键里程碑的深度审查。

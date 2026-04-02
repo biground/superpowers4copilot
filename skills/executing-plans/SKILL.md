@@ -68,3 +68,10 @@ description: Use when you have a written implementation plan to execute in a sep
 - **superpowers:using-git-worktrees** —— 必需：开始前设置隔离的工作区
 - **superpowers:writing-plans** —— 创建本技能所执行的计划
 - **superpowers:finishing-a-development-branch** —— 所有任务完成后收尾开发
+
+## gem-orchestrator 委托
+
+如果安装了 `gem-orchestrator`，对于包含多轮 wave 执行的复杂计划，可以考虑将执行委托给它：
+- gem-orchestrator 擅长管理 wave 循环、自动分派子代理、集成检查
+- 使用 `/sp-plan-exec` 时可以选择：自行按步骤执行（本技能）或委托给 gem-orchestrator
+- gem-orchestrator 会自动调用 gem-reviewer 做每轮 wave 后的集成检查
