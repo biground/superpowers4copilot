@@ -71,6 +71,17 @@ if $UNINSTALL; then
     fi
   done
   
+  # 删除 agents
+  for f in "$SCRIPT_DIR"/agents/*.md; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f")"
+    target="$TARGET_DIR/$name"
+    if [[ -f "$target" ]]; then
+      rm "$target"
+      echo "  已删除: $name (agent)"
+    fi
+  done
+  
   if [[ -d "$TARGET_DIR/skills" ]]; then
     rm -rf "$TARGET_DIR/skills"
     echo "  已删除: skills/"
@@ -95,6 +106,16 @@ for f in "${PROMPT_FILES[@]}"; do
   echo "  已安装: $f"
 done
 
+# 复制 agents
+AGENT_COUNT=0
+for f in "$SCRIPT_DIR"/agents/*.md; do
+  [[ -f "$f" ]] || continue
+  name="$(basename "$f")"
+  cp "$f" "$TARGET_DIR/$name"
+  echo "  已安装: $name (agent)"
+  AGENT_COUNT=$((AGENT_COUNT + 1))
+done
+
 # 复制 skills 目录（prompt 文件通过相对路径引用）
 if [[ -d "$TARGET_DIR/skills" ]]; then
   rm -rf "$TARGET_DIR/skills"
@@ -103,7 +124,7 @@ cp -r "$SCRIPT_DIR/skills" "$TARGET_DIR/skills"
 echo "  已安装: skills/ (全部技能文件)"
 
 echo ""
-echo "安装完成！共安装 ${#PROMPT_FILES[@]} 个命令。"
+echo "安装完成！共安装 ${#PROMPT_FILES[@]} 个命令、${AGENT_COUNT} 个 agents。"
 echo ""
 echo "可用命令（在 Copilot Chat 中输入 / 触发）："
 echo "  /sp-brainstorm       头脑风暴 → 设计方案"
