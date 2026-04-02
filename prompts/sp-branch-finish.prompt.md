@@ -9,11 +9,13 @@ description: "完成开发分支——验证、合并选项、清理 (finish dev
 
 ## 加载技能
 
-使用 read_file 读取以下技能文件并严格遵循其完整工作流：
-- skills/finishing-a-development-branch/SKILL.md
+严格遵循以下技能文件中的完整工作流：
+- [完成开发分支技能](skills/finishing-a-development-branch/SKILL.md)
 
-同时读取 VS Code Copilot Chat 工具映射作为参考：
-- skills/using-superpowers/references/copilot-chat-tools.md
+VS Code Copilot Chat 工具映射参考：
+- [工具映射](skills/using-superpowers/references/copilot-chat-tools.md)
+
+> 如果上述链接未自动加载内容，请使用 `read_file` 手动读取对应路径的文件。
 
 ## 关键工具指引
 

@@ -9,11 +9,13 @@ description: "系统化调试——先找根因再修复，拒绝随机猜测 (s
 
 ## 加载技能
 
-使用 read_file 读取以下技能文件并严格遵循其完整工作流：
-- skills/systematic-debugging/SKILL.md
+严格遵循以下技能文件中的完整工作流：
+- [系统化调试技能](skills/systematic-debugging/SKILL.md)
 
-同时读取 VS Code Copilot Chat 工具映射作为参考：
-- skills/using-superpowers/references/copilot-chat-tools.md
+VS Code Copilot Chat 工具映射参考：
+- [工具映射](skills/using-superpowers/references/copilot-chat-tools.md)
+
+> 如果上述链接未自动加载内容，请使用 `read_file` 手动读取对应路径的文件。
 
 ## 关键工具指引
 
