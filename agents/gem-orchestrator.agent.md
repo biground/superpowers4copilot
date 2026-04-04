@@ -32,7 +32,7 @@ Use these sources. Prioritize them over general knowledge:
 
 # Available Agents
 
-gem-researcher, gem-implementer, gem-reviewer, gem-documentation-writer, gem-critic, gem-planner, se-technical-writer, narrative-writer
+gem-researcher, gem-implementer, gem-reviewer, gem-documentation-writer, gem-critic, gem-planner, se-technical-writer, narrative-writer, gem-designer, gem-browser-tester
 
 > **Agent notes:**
 > - Debugging is handled end-to-end by gem-implementer (no separate debugger agent) using systematic-debugging methodology
@@ -40,6 +40,8 @@ gem-researcher, gem-implementer, gem-reviewer, gem-documentation-writer, gem-cri
 > - se-technical-writer: Technical blogs, tutorials, ADRs
 > - gem-documentation-writer: Code documentation, API docs, README
 > - For deep code review use @code-reviewer (plan alignment + architecture); gem-reviewer handles automated baseline checks
+> - gem-designer: UI/UX design specs, component APIs, layout architecture, accessibility guidelines
+> - gem-browser-tester: Browser-based E2E tests via Playwright, executes validation_matrix scenarios
 
 # Composition
 
@@ -191,6 +193,8 @@ Analyze tasks to identify specialized agent needs:
 | Technical Writing | blog, tutorial, ADR, guide | se-technical-writer | |
 | Learning Notes | notes, summary, obsidian, journal | narrative-writer | |
 | Diagnostic | debug, diagnose, root cause, trace | gem-implementer | End-to-end diagnosis + fix; no context handoff loss |
+| UI Design | design, UI, layout, component, wireframe, visual, UX, style, responsive | gem-designer | Produces design spec + component API; never writes implementation code |
+| Browser Testing | browser test, e2e, end-to-end, playwright, UI test, validate UI, user flow | gem-browser-tester | Executes validation_matrix; requires Playwright installed |
 
 - Tag tasks with detected types in task_definition
 - Pre-assign appropriate agents to task.agent field
@@ -269,6 +273,9 @@ The `gem-planner` assigns the `agent` field to each task in `plan.yaml`. This fi
 
 The orchestrator reads `task.agent` from plan.yaml and delegates accordingly.
 
+- Tasks with `agent: gem-designer` → routed to gem-designer
+- Tasks with `agent: gem-browser-tester` → routed to gem-browser-tester
+
 ```jsonc
 {
   "gem-researcher": {
@@ -338,6 +345,21 @@ The orchestrator reads `task.agent` from plan.yaml and delegates accordingly.
     "topic": "string",
     "note_type": "learning|decision|retrospective|concept",
     "source_context": "string (optional, materials or conversation to summarize)"
+  },
+
+  "gem-designer": {
+    "task_id": "string",
+    "plan_id": "string",
+    "plan_path": "string",
+    "task_definition": "object"
+  },
+
+  "gem-browser-tester": {
+    "task_id": "string",
+    "plan_id": "string",
+    "plan_path": "string",
+    "task_definition": "object",
+    "error_context": "object (optional, for retry: error_message, failing_scenario, screenshot_path)"
   }
 }
 ```
@@ -356,6 +378,10 @@ After each agent completes, the orchestrator routes based on:
 | blocking | gem-critic | Route findings to gem-planner for fixes |
 | completed | gem-implementer | Mark task done, run integration check |
 | failed | gem-implementer | Inject error_context, retry end-to-end (max 3) |
+| completed | gem-designer | Mark task done, pass design spec to dependent implementer tasks |
+| failed | gem-designer | Inject needs_clarification items, redelegate with additional context |
+| completed | gem-browser-tester | Mark task done, attach test report to wave summary |
+| failed | gem-browser-tester | Inject error_context (screenshot, failing scenario), retry (max 3) |
 | completed | gem-* | Return to orchestrator for next decision |
 
 # PRD Format Guide

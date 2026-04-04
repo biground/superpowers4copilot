@@ -54,6 +54,16 @@ if ($Uninstall) {
             Write-Host "  已删除: $f" -ForegroundColor Gray
         }
     }
+
+    # 删除 agents
+    $agentsSourceDir = Join-Path $ScriptDir "agents"
+    foreach ($f in Get-ChildItem -Path $agentsSourceDir -Filter "*.md") {
+        $target = Join-Path $TargetDir $f.Name
+        if (Test-Path $target) {
+            Remove-Item $target -Force
+            Write-Host "  已删除: $($f.Name) (agent)" -ForegroundColor Gray
+        }
+    }
     
     $skillsDir = Join-Path $TargetDir "skills"
     if (Test-Path $skillsDir) {
@@ -84,6 +94,16 @@ foreach ($f in $PromptFiles) {
     Write-Host "  已安装: $f" -ForegroundColor Gray
 }
 
+# 复制 agents
+$agentCount = 0
+$agentsSourceDir = Join-Path $ScriptDir "agents"
+foreach ($f in Get-ChildItem -Path $agentsSourceDir -Filter "*.md") {
+    $target = Join-Path $TargetDir $f.Name
+    Copy-Item $f.FullName $target -Force
+    Write-Host "  已安装: $($f.Name) (agent)" -ForegroundColor Gray
+    $agentCount++
+}
+
 # 复制 skills 目录（prompt 文件通过相对路径引用）
 $skillsTarget = Join-Path $TargetDir "skills"
 if (Test-Path $skillsTarget) {
@@ -93,7 +113,7 @@ Copy-Item (Join-Path $ScriptDir "skills") $skillsTarget -Recurse
 Write-Host "  已安装: skills/ (全部技能文件)" -ForegroundColor Gray
 
 Write-Host ""
-Write-Host "安装完成！共安装 $($PromptFiles.Count) 个命令。" -ForegroundColor Green
+Write-Host "安装完成！共安装 $($PromptFiles.Count) 个命令、$agentCount 个 agents。" -ForegroundColor Green
 Write-Host ""
 Write-Host "可用命令（在 Copilot Chat 中输入 / 触发）：" -ForegroundColor Cyan
 Write-Host "  /sp-brainstorm       头脑风暴 → 设计方案"
@@ -107,6 +127,19 @@ Write-Host "  /sp-worktree         Git Worktree 管理"
 Write-Host "  /sp-branch-finish    完成开发分支"
 Write-Host "  /sp-code-review-req  请求代码审查"
 Write-Host "  /sp-code-review-recv 接收代码审查"
+Write-Host ""
+Write-Host "可用 Agents（在 Copilot Chat 中以 @ 触发）：" -ForegroundColor Cyan
+Write-Host "  @gem-orchestrator    多代理编排（主入口）"
+Write-Host "  @gem-planner         制定执行计划"
+Write-Host "  @gem-implementer     TDD 代码实现"
+Write-Host "  @gem-reviewer        代码审查与验证"
+Write-Host "  @gem-researcher      代码库探索与分析"
+Write-Host "  @gem-critic          方案挑战与边界分析"
+Write-Host "  @gem-designer        UI/UX 设计规格"
+Write-Host "  @gem-browser-tester  浏览器 E2E 测试"
+Write-Host "  @gem-documentation-writer  技术文档"
+Write-Host "  @se-technical-writer 技术博客/教程"
+Write-Host "  @narrative-writer    Obsidian 学习笔记"
 Write-Host ""
 $uninstallCmd = ".\install.ps1 -Uninstall"
 if ($Insiders) { $uninstallCmd += " -Insiders" }
