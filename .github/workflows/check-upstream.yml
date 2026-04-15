@@ -1,0 +1,163 @@
+name: 检查上游仓库更新
+
+on:
+  schedule:
+    # 每天 UTC 08:00（北京时间 16:00）检查一次
+    - cron: '0 8 * * *'
+  workflow_dispatch: # 支持手动触发
+
+permissions:
+  issues: write
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: superpowers
+            repo: obra/superpowers
+            branch: main
+            tracking_file: .upstream-tracking/superpowers-last-sha
+          - name: gem-team
+            repo: mubaidr/gem-team
+            branch: main
+            tracking_file: .upstream-tracking/gem-team-last-sha
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 获取上游最新 commit
+        id: upstream
+        run: |
+          # 获取上游最新 commit SHA
+          LATEST_SHA=$(git ls-remote "https://github.com/${{ matrix.repo }}.git" "${{ matrix.branch }}" | cut -f1)
+          echo "latest_sha=$LATEST_SHA" >> "$GITHUB_OUTPUT"
+          echo "上游 ${{ matrix.name }} 最新 SHA: $LATEST_SHA"
+
+          # 读取上次记录的 SHA
+          LAST_SHA=""
+          if [[ -f "${{ matrix.tracking_file }}" ]]; then
+            LAST_SHA=$(cat "${{ matrix.tracking_file }}")
+          fi
+          echo "last_sha=$LAST_SHA" >> "$GITHUB_OUTPUT"
+          echo "上次记录 SHA: ${LAST_SHA:-（首次检查）}"
+
+          # 判断是否有更新
+          if [[ "$LATEST_SHA" != "$LAST_SHA" && -n "$LATEST_SHA" ]]; then
+            echo "has_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_update=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 获取更新详情
+        if: steps.upstream.outputs.has_update == 'true'
+        id: details
+        run: |
+          # 克隆上游仓库获取 commit 详情
+          git clone --bare --single-branch --branch "${{ matrix.branch }}" \
+            "https://github.com/${{ matrix.repo }}.git" /tmp/upstream-repo
+
+          LAST_SHA="${{ steps.upstream.outputs.last_sha }}"
+          LATEST_SHA="${{ steps.upstream.outputs.latest_sha }}"
+
+          if [[ -n "$LAST_SHA" ]]; then
+            # 有上次记录，显示差异
+            COMMIT_LOG=$(git -C /tmp/upstream-repo log --oneline "${LAST_SHA}..${LATEST_SHA}" 2>/dev/null | head -20)
+            COMMIT_COUNT=$(git -C /tmp/upstream-repo rev-list --count "${LAST_SHA}..${LATEST_SHA}" 2>/dev/null || echo "?")
+          else
+            # 首次检查，显示最近 10 个 commit
+            COMMIT_LOG=$(git -C /tmp/upstream-repo log --oneline -10)
+            COMMIT_COUNT="首次检查"
+          fi
+
+          # 写入多行输出
+          {
+            echo "commit_log<<EOF"
+            echo "$COMMIT_LOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "commit_count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: 创建 Issue 通知
+        if: steps.upstream.outputs.has_update == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const name = '${{ matrix.name }}';
+            const repo = '${{ matrix.repo }}';
+            const branch = '${{ matrix.branch }}';
+            const latestSha = '${{ steps.upstream.outputs.latest_sha }}';
+            const commitCount = '${{ steps.details.outputs.commit_count }}';
+            const commitLog = `${{ steps.details.outputs.commit_log }}`;
+
+            // 检查是否已有同名未关闭的 Issue
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-update',
+            });
+
+            const title = `🔔 上游更新：${name}（${commitCount} 个新 commit）`;
+            const existingIssue = existing.data.find(i => i.title.includes(`上游更新：${name}`));
+
+            const body = [
+              `## 上游仓库 [${repo}](https://github.com/${repo}) 有新的更新`,
+              '',
+              `- **分支**: \`${branch}\``,
+              `- **最新 SHA**: \`${latestSha.substring(0, 8)}\``,
+              `- **新 commit 数**: ${commitCount}`,
+              '',
+              '### 更新日志',
+              '```',
+              commitLog,
+              '```',
+              '',
+              '### 操作建议',
+              '```bash',
+              `# 获取上游更新`,
+              `git fetch upstream-${name === 'superpowers' ? 'sp' : 'gem'}`,
+              '',
+              `# 查看差异`,
+              `git log --oneline upstream-${name === 'superpowers' ? 'sp' : 'gem'}/${branch} --not main | head -20`,
+              '',
+              `# 按需 cherry-pick`,
+              `git cherry-pick <commit-sha>`,
+              '```',
+            ].join('\n');
+
+            if (existingIssue) {
+              // 更新已有 Issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                title,
+                body,
+              });
+              console.log(`已更新 Issue #${existingIssue.number}`);
+            } else {
+              // 创建新 Issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['upstream-update'],
+              });
+              console.log('已创建新 Issue');
+            }
+
+      - name: 更新 tracking 文件
+        if: steps.upstream.outputs.has_update == 'true'
+        run: |
+          mkdir -p "$(dirname "${{ matrix.tracking_file }}")"
+          echo "${{ steps.upstream.outputs.latest_sha }}" > "${{ matrix.tracking_file }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ matrix.tracking_file }}"
+          git commit -m "chore: 更新 ${{ matrix.name }} 上游追踪 SHA" || true
+          git push || true
