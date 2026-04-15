@@ -1,0 +1,1001 @@
+plan_id: gsd-integration
+objective: |
+  将 GSD (get-shit-done) 的项目管理骨架与 superpowers4copilot 的专业代理层整合，
+  形成「GSD 负责项目生命周期 + 我们负责专业代理调度」的混合架构。
+  GSD 作为只读上游参考，所有适配在我们这边完成。
+created_at: "2026-04-15"
+created_by: gem-planner
+status: pending_approval
+research_confidence: high
+
+plan_metrics:
+  wave_1_task_count: 4
+  total_dependencies: 18
+  risk_score: medium
+
+tldr: |
+  分 5 个 Wave 完成整合：
+  Wave 1: 基础设施层——GSD 检测工具、状态读取适配器、安装脚本更新（4 任务并行）
+  Wave 2: 代理适配层——gem-orchestrator 感知 GSD、完成标记协议、GSD 桥接技能（3 任务并行）
+  Wave 3: 专业代理路由——GSD 执行阶段中调度专业代理、门控修订循环（2 任务并行）
+  Wave 4: 韧性与恢复——会话恢复优先级链、上下文消耗感知（2 任务并行）
+  Wave 5: 文档与验证——集成指南、E2E 验收测试（2 任务并行）
+  总计 13 个任务，预估总工时 35-50 分钟。
+
+open_questions:
+  - "GSD 的 npx get-shit-done-cc --copilot 安装路径是否稳定？是否需要版本锁定？"
+  - "GSD 的 .planning/ 文件结构在未来版本中是否有 breaking change 的风险？"
+  - "是否需要支持同一个项目中的多 workspace（GSD_WORKSTREAM 模式）？"
+
+pre_mortem:
+  overall_risk_level: medium
+  critical_failure_modes:
+    - scenario: "GSD 更新破坏 .planning/ 文件格式，导致我们的状态读取适配器失效"
+      likelihood: medium
+      impact: high
+      mitigation: "适配器使用防御性解析（字段缺失时优雅降级），不依赖 GSD 内部实现细节，只读取公共约定的文件格式"
+    - scenario: "two-system 安装增加用户配置负担，用户弃用"
+      likelihood: medium
+      impact: medium
+      mitigation: "安装脚本自动检测 GSD 存在性并提示整合选项；无 GSD 时系统完全独立工作"
+    - scenario: "orchestrator 上下文窗口因同时加载 GSD 状态和自身计划而过载"
+      likelihood: medium
+      impact: high
+      mitigation: "GSD 状态读取严格限制在 frontmatter + 摘要级别（<50 行），绝不加载完整 .planning/ 文件"
+    - scenario: "GSD 的 slash command 与我们的 slash command 命名冲突"
+      likelihood: low
+      impact: low
+      mitigation: "GSD 用 /gsd-* 前缀，我们用 /sp-* 前缀，天然隔离"
+  assumptions:
+    - "GSD 已通过 npx get-shit-done-cc --copilot 安装到 VS Code prompts 目录"
+    - "GSD 的 .planning/ 目录结构遵循研究中记录的约定（STATE.md, ROADMAP.md, config.json 等）"
+    - "用户项目中的 .planning/ 目录由 GSD 独占管理，我们只读不写"
+    - "VS Code Copilot 的代理系统允许多个 agent 共存且可通过 @ 前缀区分"
+    - "install.sh 和 install.ps1 必须同步更新"
+
+implementation_specification:
+  code_structure: |
+    新增一个 skills/gsd-bridge/ 技能目录，包含 GSD 检测、状态读取、代理路由逻辑。
+    修改 gem-orchestrator 的 Phase Detection 部分，增加 GSD 感知分支。
+    修改安装脚本，增加 GSD 检测提示和可选集成步骤。
+    所有 GSD 交互通过防御性适配器层完成，不直接依赖 GSD 内部实现。
+
+  affected_areas:
+    - "agents/gem-orchestrator.agent.md — 核心编排器，增加 GSD 感知"
+    - "skills/gsd-bridge/ — 新技能目录，GSD 适配层"
+    - "install.sh, install.ps1 — 安装脚本增加 GSD 检测"
+    - "agents/global.instructions.md — 全局指令增加 GSD 上下文约定"
+    - "prompts/sp-plan-exec.prompt.md — 执行计划时感知 GSD 状态"
+    - "docs/ — 集成文档"
+
+  component_details:
+    - component: "skills/gsd-bridge/SKILL.md"
+      responsibility: "GSD 桥接技能主文件：检测逻辑、状态读取协议、代理路由规则"
+      interfaces:
+        - "GSD 检测：检查 .planning/ 目录和 GSD 命令可用性"
+        - "状态读取：解析 STATE.md frontmatter，提取当前阶段/计划/状态"
+        - "路由建议：根据 GSD 阶段类型映射到可调度的专业代理"
+
+    - component: "skills/gsd-bridge/gsd-detector.md"
+      responsibility: "GSD 存在性检测和版本信息获取"
+      interfaces:
+        - "detect_gsd(): 返回 {installed: bool, version: string, planning_dir: string}"
+
+    - component: "skills/gsd-bridge/state-reader.md"
+      responsibility: "只读解析 GSD .planning/ 状态文件"
+      interfaces:
+        - "read_state(): 返回当前阶段、计划、任务状态的结构化摘要"
+        - "read_phase_context(): 返回当前阶段的上下文级摘要"
+
+    - component: "skills/gsd-bridge/agent-router.md"
+      responsibility: "GSD 阶段/任务类型到专业代理的映射表"
+      interfaces:
+        - "route_task(gsd_task_type): 返回推荐的专业代理和调度参数"
+
+    - component: "agents/gem-orchestrator.agent.md (修改)"
+      responsibility: "增加 GSD 感知的 Phase Detection 分支和状态同步"
+      interfaces:
+        - "GSD Mode Detection: 检测 .planning/ 存在性，进入 GSD 协作模式"
+        - "GSD State Sync: 从 .planning/STATE.md 读取当前位置"
+
+  dependencies:
+    - component: "gsd-bridge 技能"
+      relationship: "被 gem-orchestrator 在 Phase Detection 阶段加载和调用"
+    - component: "state-reader"
+      relationship: "被 agent-router 和 orchestrator 用于判断当前 GSD 阶段"
+    - component: "agent-router"
+      relationship: "被 orchestrator 用于在 GSD 执行阶段调度专业代理"
+    - component: "gsd-detector"
+      relationship: "被安装脚本和 orchestrator 用于检测 GSD 是否可用"
+
+  integration_points:
+    - "gem-orchestrator Phase Detection → GSD .planning/STATE.md 读取"
+    - "gem-orchestrator Execution Loop → GSD 执行阶段任务的专业代理路由"
+    - "install.sh/install.ps1 → GSD 存在性检测和提示"
+    - "sp-plan-exec prompt → GSD 状态感知"
+    - "子代理完成标记 → 统一的 completion marker 协议"
+
+contracts:
+  - from_task: "T01"
+    to_task: "T05"
+    interface: "gsd-detector.md 提供检测逻辑，orchestrator 用于 Phase Detection"
+    format: "Markdown 技能文件，包含检测步骤和返回值约定"
+
+  - from_task: "T02"
+    to_task: "T05"
+    interface: "state-reader.md 提供状态读取协议，orchestrator 用于同步 GSD 状态"
+    format: "Markdown 技能文件，包含 STATE.md 解析规则和输出格式"
+
+  - from_task: "T01"
+    to_task: "T03"
+    interface: "gsd-detector.md 中的检测逻辑被安装脚本复用"
+    format: "Shell/PowerShell 函数，检查 GSD 命令可用性和 .planning/ 目录"
+
+  - from_task: "T04"
+    to_task: "T05"
+    interface: "completion-protocol.md 定义的统一完成标记被 orchestrator 使用"
+    format: "JSON 格式的完成信号 {status, task_id, markers}"
+
+  - from_task: "T02"
+    to_task: "T06"
+    interface: "state-reader.md 提供 agent-router.md 所需的阶段类型信息"
+    format: "结构化状态摘要 {phase_type, task_types, current_position}"
+
+  - from_task: "T05"
+    to_task: "T08"
+    interface: "orchestrator 的 GSD 模式为专业代理路由提供运行时上下文"
+    format: "GSD 状态 + 任务定义注入到专业代理的 task_definition 中"
+
+  - from_task: "T06"
+    to_task: "T08"
+    interface: "agent-router 的路由表为专业代理调度提供映射"
+    format: "路由决策 {agent, priority, context_injection}"
+
+  - from_task: "T08"
+    to_task: "T09"
+    interface: "专业代理路由的实践经验为门控修订循环提供质量检查触发条件"
+    format: "代理执行结果 + 质量指标"
+
+tasks:
+  # ═══════════════════════════════════════════════════════════════
+  # Wave 1：基础设施层（4 任务并行）
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: "T01"
+    title: "创建 GSD 检测器技能文件"
+    description: |
+      创建 skills/gsd-bridge/gsd-detector.md，定义 GSD 存在性检测逻辑：
+      1. 检查 .planning/ 目录是否存在于当前项目根目录
+      2. 检查 .planning/config.json 是否存在且可读
+      3. 检查 GSD 命令是否可用（npx get-shit-done-cc --version）
+      4. 提取 GSD 版本号
+      5. 返回结构化检测结果：{installed, version, planning_dir, has_state, has_roadmap}
+      6. 所有检测步骤使用防御性编程——任何步骤失败都返回 installed=false 而不是报错
+      7. 在文件头部说明：此文件仅被 gem-orchestrator 和安装脚本消费
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "GSD 检测能力"
+    priority: high
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "skills/gsd-bridge/"
+        description: "新建目录，GSD 桥接技能"
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD 研究发现，特别是 context_file_system 和 state_management 部分"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 2
+        estimated_lines: 80
+        focus_area: "GSD 存在性检测"
+        verification:
+          - "文件 skills/gsd-bridge/gsd-detector.md 存在且格式正确"
+          - "包含 5 步检测逻辑的完整描述"
+          - "包含防御性降级说明"
+        acceptance_criteria:
+          - "gsd-detector.md 定义了完整的 GSD 检测流程"
+          - "所有检测步骤都有失败时的降级行为"
+          - "返回值结构清晰且机器可解析"
+        failure_modes:
+          - scenario: "GSD 命令路径在不同 OS 上不一致"
+            likelihood: medium
+            impact: low
+            mitigation: "使用 which/where 命令检测，失败时降级为仅检查 .planning/ 目录"
+        tech_stack:
+          - "Markdown (agent skill 文件)"
+          - "Shell 命令片段"
+        test_coverage: null
+
+  - id: "T02"
+    title: "创建 GSD 状态读取器技能文件"
+    description: |
+      创建 skills/gsd-bridge/state-reader.md，定义只读解析 GSD .planning/ 状态的协议：
+      1. 读取 .planning/STATE.md 的前 20 行（frontmatter + 当前位置摘要）
+      2. 解析关键字段：Current Phase, Current Plan, Status, Blockers
+      3. 读取 .planning/config.json 提取工作流配置（model_profile, parallelization 等）
+      4. （可选）读取当前阶段的 CONTEXT.md 的 frontmatter
+      5. 返回结构化摘要：{phase, plan, status, blockers, config_flags}
+      6. 严格只读——绝不写入 .planning/ 目录下的任何文件
+      7. 上下文预算控制：总读取不超过 50 行，只取摘要级信息
+      8. 文件不存在时返回空结构而非报错
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "结构化状态持久化读取"
+    priority: high
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD 研究发现，state_management 和 context_file_system 部分"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 100
+        focus_area: "GSD 状态只读解析"
+        verification:
+          - "文件 skills/gsd-bridge/state-reader.md 存在且格式正确"
+          - "包含完整的 STATE.md 解析规则"
+          - "包含上下文预算控制约定（≤50 行）"
+          - "明确标注只读约束"
+        acceptance_criteria:
+          - "state-reader.md 能解析 STATE.md 的核心字段"
+          - "读取总量严格控制在 50 行以内"
+          - "所有缺失字段有合理的默认值"
+          - "绝不写入 .planning/ 目录"
+        failure_modes:
+          - scenario: "STATE.md 格式随 GSD 版本变化"
+            likelihood: medium
+            impact: medium
+            mitigation: "使用正则而非固定偏移解析字段，缺失字段返回 null"
+        tech_stack:
+          - "Markdown (agent skill 文件)"
+        test_coverage: null
+
+  - id: "T03"
+    title: "更新安装脚本——GSD 检测与提示"
+    description: |
+      同步更新 install.sh 和 install.ps1（两个文件必须同步修改）：
+      1. 在安装完成后增加 GSD 检测段：
+         - 检查 npx get-shit-done-cc --version 是否可用
+         - 检查全局 npm 中是否安装了 get-shit-done-cc
+      2. 如果检测到 GSD 已安装：
+         - 输出提示信息："检测到 GSD (get-shit-done) 已安装。Superpowers 代理已自动支持与 GSD 的协作模式。"
+         - 输出使用提示："在有 .planning/ 目录的项目中，@gem-orchestrator 将自动感知 GSD 状态。"
+      3. 如果未检测到 GSD：
+         - 输出可选提示："提示：安装 GSD (npx get-shit-done-cc --copilot) 可获得项目生命周期管理能力。"
+      4. 检测逻辑使用 command -v (bash) / Get-Command (PowerShell)，失败时静默跳过
+      5. 保持现有安装逻辑不变，GSD 检测仅作为信息性输出
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "安装脚本 GSD 集成"
+    priority: high
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "install.sh"
+        description: "当前安装脚本 (bash)"
+      - path: "install.ps1"
+        description: "当前安装脚本 (PowerShell)"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 2
+        estimated_lines: 60
+        focus_area: "安装脚本 GSD 检测"
+        verification:
+          - "install.sh 运行无语法错误：bash -n install.sh"
+          - "install.ps1 语法检查通过"
+          - "两个脚本的 GSD 检测逻辑功能一致"
+          - "未安装 GSD 时安装流程正常完成（向后兼容）"
+        acceptance_criteria:
+          - "install.sh 和 install.ps1 同步增加了 GSD 检测段"
+          - "检测到 GSD 时输出协作模式提示"
+          - "未检测到 GSD 时输出可选安装提示"
+          - "检测失败时静默跳过，不影响正常安装"
+          - "两个脚本逻辑完全对齐"
+        failure_modes:
+          - scenario: "npx 命令在某些环境不可用"
+            likelihood: low
+            impact: low
+            mitigation: "使用 command -v npx 先检测 npx 本身是否可用"
+        tech_stack:
+          - "Bash"
+          - "PowerShell"
+        test_coverage: null
+
+  - id: "T04"
+    title: "定义统一的子代理完成标记协议"
+    description: |
+      创建 skills/gsd-bridge/completion-protocol.md，定义 superpowers4copilot 子代理的标准化完成信号：
+      1. 参考 GSD 的 agent-contracts.md 完成标记模式
+      2. 为每个现有代理定义完成标记格式：
+         - gem-implementer: 返回 JSON {status: "completed"|"failed", task_id, files_changed[], tests_passed: bool}
+         - gem-reviewer: 返回 JSON {status: "approved"|"needs_revision"|"failed", issues[]}
+         - gem-critic: 返回 JSON {verdict: "pass"|"needs_changes"|"blocking", findings[]}
+         - gem-researcher: 返回 JSON {status: "completed"|"blocked", findings_path}
+         - 其他代理: 类似的结构化 JSON 输出
+      3. 定义 orchestrator 对每种信号的路由规则
+      4. 定义超时和无响应场景的降级处理
+      5. 注明此协议与 GSD 的完成标记兼容但不依赖——独立系统也使用此协议
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "完成标记协议标准化"
+    priority: high
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "agents/gem-orchestrator.agent.md"
+        description: "当前 orchestrator 的 Result Routing 表"
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD agent_contracts 部分"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 120
+        focus_area: "子代理完成信号标准化"
+        verification:
+          - "文件 skills/gsd-bridge/completion-protocol.md 存在"
+          - "所有 14 个专业代理的完成标记均已定义"
+          - "超时和降级处理有明确规则"
+        acceptance_criteria:
+          - "每个代理都有结构化的完成信号格式"
+          - "orchestrator 路由规则覆盖所有信号类型"
+          - "协议独立于 GSD——无 GSD 时同样适用"
+          - "与 GSD 的 marker 模式兼容（可选桥接）"
+        failure_modes:
+          - scenario: "现有代理的输出格式与新协议不兼容"
+            likelihood: low
+            impact: medium
+            mitigation: "协议以渐进方式采纳——新格式是推荐而非强制，orchestrator 同时支持旧格式"
+        tech_stack:
+          - "Markdown (协议文档)"
+          - "JSON (信号格式定义)"
+        test_coverage: null
+
+  # ═══════════════════════════════════════════════════════════════
+  # Wave 2：代理适配层（3 任务并行）
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: "T05"
+    title: "升级 gem-orchestrator——GSD 感知的 Phase Detection"
+    description: |
+      修改 agents/gem-orchestrator.agent.md 的 Phase Detection 部分：
+      1. 在 Section 1.2 Standard Phase Detection 之前新增 Section 1.1.5 "GSD Mode Detection"：
+         - 检查当前项目是否有 .planning/ 目录（使用 gsd-detector.md 的逻辑）
+         - 如果有：设置 gsd_mode=true，读取 STATE.md 摘要（使用 state-reader.md）
+         - 提取当前 GSD 阶段类型（discuss/research/plan/execute/verify）
+      2. 在 Phase Detection 逻辑中增加 GSD 分支：
+         - IF gsd_mode AND GSD 在 execute 阶段 AND 用户请求专业审查：调度专业代理
+         - IF gsd_mode AND GSD 在 plan 阶段：提供我们的 gem-planner 作为可选增强
+         - IF gsd_mode AND 用户直接 @gem-orchestrator：正常走我们的工作流，同时感知 GSD 状态
+      3. 在 Status Summary Format 中增加 GSD 状态行：
+         - "GSD: Phase {n}/{total} | {phase_name} | {status}" （仅 gsd_mode=true 时显示）
+      4. 在 Knowledge Sources 中增加一条：
+         - "GSD 状态: .planning/STATE.md（如果存在）用于项目位置感知"
+      5. 保持所有非 GSD 路径不变——gsd_mode=false 时行为与当前完全一致
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "orchestrator GSD 感知"
+      - "向后兼容"
+    priority: high
+    status: pending
+    dependencies:
+      - "T01"
+      - "T02"
+      - "T04"
+    conflicts_with: []
+    context_files:
+      - path: "agents/gem-orchestrator.agent.md"
+        description: "当前 orchestrator 完整定义"
+      - path: "skills/gsd-bridge/gsd-detector.md"
+        description: "T01 产出的检测逻辑"
+      - path: "skills/gsd-bridge/state-reader.md"
+        description: "T02 产出的状态读取逻辑"
+      - path: "skills/gsd-bridge/completion-protocol.md"
+        description: "T04 产出的完成标记协议"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 80
+        focus_area: "orchestrator GSD 模式检测与路由"
+        verification:
+          - "gem-orchestrator.agent.md 语法正确（YAML frontmatter + Markdown body）"
+          - "新增的 GSD Mode Detection 段落在 Phase Detection 中位置正确"
+          - "gsd_mode=false 时所有原有逻辑路径不受影响"
+          - "GSD 状态行仅在 gsd_mode=true 时出现在 Status Summary"
+        acceptance_criteria:
+          - "orchestrator 能检测 .planning/ 目录存在性并进入 GSD 模式"
+          - "GSD 模式下能读取 STATE.md 摘要并路由到专业代理"
+          - "非 GSD 项目行为完全不变"
+          - "Knowledge Sources 中包含 GSD 状态引用"
+        failure_modes:
+          - scenario: "GSD 检测耗时过长影响 Phase Detection 速度"
+            likelihood: low
+            impact: medium
+            mitigation: "检测逻辑仅检查目录存在性（文件系统操作），不执行命令行工具"
+        tech_stack:
+          - "Markdown (agent 定义文件)"
+        test_coverage: null
+        requires_review: true
+        review_depth: full
+        review_security_sensitive: false
+
+  - id: "T06"
+    title: "创建 GSD 桥接技能主文件和代理路由表"
+    description: |
+      创建 skills/gsd-bridge/SKILL.md 和 skills/gsd-bridge/agent-router.md：
+
+      SKILL.md 内容：
+      1. 技能描述：GSD 桥接——在 GSD 管理的项目中提供专业代理调度
+      2. 触发条件：当 orchestrator 检测到 gsd_mode=true 时自动加载
+      3. 引用子文件：gsd-detector.md, state-reader.md, agent-router.md, completion-protocol.md
+      4. 使用流程概述
+
+      agent-router.md 内容：
+      1. GSD 阶段类型到专业代理的映射表：
+         | GSD 阶段 | 可调度的专业代理 | 触发条件 |
+         |----------|-----------------|---------|
+         | execute  | security-reviewer, performance-optimizer, a11y-architect, silent-failure-hunter | 用户请求或自动门控 |
+         | verify   | gem-reviewer, gem-critic | 自动，每个 wave 完成后 |
+         | plan     | gem-planner (增强) | 用户请求 |
+         | research | gem-researcher | 自动融合 |
+         | discuss  | — (不干预) | — |
+      2. GSD 任务类型到专业代理的映射：
+         - 含 security 关键词 → security-reviewer
+         - 含 performance/optimize → performance-optimizer
+         - 含 a11y/accessibility/WCAG → a11y-architect
+         - 含 UI test/e2e/browser → gem-browser-tester
+      3. 路由优先级规则：用户显式指定 > 任务关键词匹配 > 默认 gem-implementer
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "代理路由映射"
+    priority: high
+    status: pending
+    dependencies:
+      - "T01"
+      - "T02"
+    conflicts_with: []
+    context_files:
+      - path: "agents/gem-orchestrator.agent.md"
+        description: "当前 orchestrator 的 Task Type Detection 表"
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD 代理体系和阶段类型"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 2
+        estimated_lines: 150
+        focus_area: "GSD-专业代理路由映射"
+        verification:
+          - "skills/gsd-bridge/SKILL.md 存在且包含完整技能描述"
+          - "skills/gsd-bridge/agent-router.md 存在且包含完整路由表"
+          - "所有 GSD 阶段类型都有对应的路由规则"
+          - "路由优先级规则清晰无歧义"
+        acceptance_criteria:
+          - "SKILL.md 正确引用所有子文件"
+          - "agent-router.md 覆盖所有 GSD 阶段类型"
+          - "任务关键词映射覆盖所有专业代理"
+          - "路由表与 orchestrator 的 Task Type Detection 一致"
+        failure_modes:
+          - scenario: "路由表遗漏某些 GSD 任务类型"
+            likelihood: low
+            impact: low
+            mitigation: "未匹配的任务类型默认路由到 gem-implementer"
+        tech_stack:
+          - "Markdown (技能文件)"
+        test_coverage: null
+
+  - id: "T07"
+    title: "更新 global.instructions.md——GSD 上下文约定"
+    description: |
+      修改 agents/global.instructions.md，增加 GSD 协作模式的全局约定：
+      1. 新增 "## GSD 协作模式" 段落（放在现有段落之后）：
+         - 当项目根目录存在 .planning/ 目录时，表示 GSD 已初始化
+         - 所有代理应尊重 .planning/ 为 GSD 独占管理区域——只读不写
+         - 如需持久化状态，使用我们自己的 docs/plan/ 目录或 session memory
+         - GSD 的 STATE.md 是项目当前位置的权威来源（当可用时）
+      2. 约定控制在 10 行以内，避免膨胀全局指令
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "全局 GSD 约定"
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "agents/global.instructions.md"
+        description: "当前全局指令文件"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 15
+        focus_area: "全局指令 GSD 约定"
+        verification:
+          - "global.instructions.md 语法正确"
+          - "新增段落不超过 10 行"
+          - ".planning/ 只读约定明确标注"
+        acceptance_criteria:
+          - "GSD 协作模式约定清晰简洁"
+          - ".planning/ 只读规则明确"
+          - "不影响现有全局指令"
+        failure_modes:
+          - scenario: "全局指令过长导致上下文压力"
+            likelihood: low
+            impact: low
+            mitigation: "严格控制在 10 行以内"
+        tech_stack:
+          - "Markdown"
+        test_coverage: null
+
+  # ═══════════════════════════════════════════════════════════════
+  # Wave 3：专业代理路由与门控（2 任务并行）
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: "T08"
+    title: "实现 GSD 执行阶段的专业代理调度逻辑"
+    description: |
+      在 gem-orchestrator.agent.md 的 Execution Loop 中增加 GSD 协作调度：
+      1. 在 Section 6.1.1 Task Type Detection 后增加 "6.1.2 GSD Task Augmentation"：
+         - IF gsd_mode=true AND GSD 在 execute 阶段：
+           a. 读取当前 GSD 计划的任务列表（state-reader 提供）
+           b. 对每个 GSD 任务应用 agent-router 的关键词映射
+           c. 识别可由专业代理增强的任务（安全、性能、无障碍等）
+           d. 向用户展示建议："GSD 任务 X 可由 @security-reviewer 增强审查"
+      2. 在 Section 6.2.5 Auto-Agent Invocations 中增加 GSD 模式分支：
+         - IF gsd_mode=true：在 GSD 每个 wave 完成后，自动触发：
+           a. gem-reviewer（wave 级集成检查）
+           b. security-reviewer（如果 wave 包含安全相关任务）
+           c. performance-optimizer（如果 wave 包含性能敏感任务）
+      3. 调度结果通过 completion-protocol 标准格式返回
+      4. GSD 的 executor 继续负责主要代码实现——我们的专业代理只做审查和增强
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "专业代理调度"
+      - "GSD 执行阶段增强"
+    priority: high
+    status: pending
+    dependencies:
+      - "T05"
+      - "T06"
+    conflicts_with: []
+    context_files:
+      - path: "agents/gem-orchestrator.agent.md"
+        description: "orchestrator 定义（需已包含 T05 的 GSD Mode Detection）"
+      - path: "skills/gsd-bridge/agent-router.md"
+        description: "T06 产出的路由表"
+      - path: "skills/gsd-bridge/completion-protocol.md"
+        description: "T04 产出的完成标记协议"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 80
+        focus_area: "GSD 执行阶段专业代理调度"
+        verification:
+          - "gem-orchestrator.agent.md 中 Section 6.1.2 和 6.2.5 GSD 分支存在"
+          - "调度逻辑引用了 agent-router.md 的路由表"
+          - "非 GSD 模式的 Execution Loop 不受影响"
+        acceptance_criteria:
+          - "GSD execute 阶段的任务能被专业代理增强"
+          - "自动触发的审查代理列表正确"
+          - "调度结果使用标准完成协议"
+          - "GSD executor 的主流程不被干扰"
+        failure_modes:
+          - scenario: "专业代理审查与 GSD executor 产生冲突"
+            likelihood: medium
+            impact: medium
+            mitigation: "专业代理只做只读审查（review/audit），不修改代码——修改权归 GSD executor"
+        tech_stack:
+          - "Markdown (agent 定义)"
+        test_coverage: null
+        requires_review: true
+        review_depth: full
+        review_security_sensitive: false
+
+  - id: "T09"
+    title: "增强 sp-plan-exec 的门控修订循环"
+    description: |
+      修改 prompts/sp-plan-exec.prompt.md 和 skills/executing-plans/SKILL.md：
+      1. 参考 GSD 的 Gates Taxonomy，增加质量门控机制：
+         - Pre-flight Gate：执行前检查计划文件存在性和依赖完整性
+         - Revision Gate：每个 wave 完成后，自动触发 gem-reviewer 检查
+           - 如果 issues_found > 0：循环回该 wave 的代理修复（max 3 迭代）
+           - 停滞检测：如果迭代间 issues 数不减少，升级到用户
+         - Escalation Gate：3 次修订失败后，暂停执行并呈现问题给用户
+      2. 修改 sp-plan-exec.prompt.md 的执行流程描述：
+         - 增加 "门控检查" 步骤在每个 wave 之间
+         - 引用 GSD 的门控术语但用我们自己的代理执行
+      3. IF gsd_mode=true：
+         - 在 Pre-flight 中额外检查 GSD STATE.md 的一致性
+         - 门控结果同步写入我们的 plan.yaml（不写入 .planning/）
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "门控修订循环"
+      - "质量自动检查"
+    priority: medium
+    status: pending
+    dependencies:
+      - "T05"
+      - "T06"
+    conflicts_with:
+      - "T08"
+    context_files:
+      - path: "prompts/sp-plan-exec.prompt.md"
+        description: "当前执行计划的 prompt 文件"
+      - path: "skills/executing-plans/SKILL.md"
+        description: "当前执行计划的技能文件"
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD Gates Taxonomy 部分"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 2
+        estimated_lines: 100
+        focus_area: "门控修订循环机制"
+        verification:
+          - "sp-plan-exec.prompt.md 包含门控检查步骤"
+          - "skills/executing-plans/SKILL.md 包含 Pre-flight, Revision, Escalation 门控描述"
+          - "修订循环有 max 3 迭代限制"
+          - "停滞检测逻辑存在"
+        acceptance_criteria:
+          - "Pre-flight Gate 阻止无效执行"
+          - "Revision Gate 自动检测并循环修复"
+          - "停滞检测在修复无进展时升级"
+          - "Escalation Gate 暂停执行并呈现问题"
+          - "GSD 模式下额外检查 STATE.md 一致性"
+        failure_modes:
+          - scenario: "修订循环导致上下文窗口耗尽"
+            likelihood: medium
+            impact: high
+            mitigation: "每次修订循环使用新的 subagent（新鲜上下文），orchestrator 只保留结果摘要"
+        tech_stack:
+          - "Markdown (prompt 和 skill 文件)"
+        test_coverage: null
+
+  # ═══════════════════════════════════════════════════════════════
+  # Wave 4：韧性与恢复（2 任务并行）
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: "T10"
+    title: "实现会话恢复优先级链"
+    description: |
+      修改 gem-orchestrator.agent.md 的 Phase Detection，增加恢复优先级逻辑：
+      1. 在 Phase Detection 最前面增加 "1.0 Recovery Check"：
+         - 检查 session memory 中是否有上次未完成的计划
+         - IF gsd_mode=true：检查 .planning/HANDOFF.json 是否存在
+         - IF gsd_mode=true：检查 .planning/{phase}/.continue-here.md 是否存在
+      2. 定义恢复优先级链（参考 GSD 但使用我们的机制）：
+         优先级 1：session memory 中的活跃 plan.yaml（最精确）
+         优先级 2：gsd_mode=true 时，HANDOFF.json 提供的结构化恢复点
+         优先级 3：gsd_mode=true 时，.continue-here.md 提供的检查点
+         优先级 4：plan.yaml 中 status=in_progress 的任务（文件系统推断）
+      3. 恢复时向用户展示恢复信息：
+         - "检测到上次未完成的工作：[计划名] Wave [N]，任务 [M/Total]"
+         - 提供选项：继续 / 从头开始 / 查看状态
+      4. 仅在 gsd_mode=true 时使用 GSD 的恢复制品——非 GSD 项目走现有流程
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "恢复优先级链"
+      - "会话连续性"
+    priority: medium
+    status: pending
+    dependencies:
+      - "T05"
+      - "T08"
+    conflicts_with: []
+    context_files:
+      - path: "agents/gem-orchestrator.agent.md"
+        description: "orchestrator Phase Detection（需已包含 T05 和 T08 的修改）"
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD session_recovery 部分"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 60
+        focus_area: "会话恢复优先级链"
+        verification:
+          - "gem-orchestrator.agent.md 中 Section 1.0 Recovery Check 存在"
+          - "恢复优先级链包含 4 个层级"
+          - "用户展示恢复信息的格式定义完整"
+          - "非 GSD 项目的恢复流程不受影响"
+        acceptance_criteria:
+          - "中断后恢复能找到最近的有效恢复点"
+          - "恢复信息对用户清晰可操作"
+          - "GSD 恢复制品仅在 gsd_mode=true 时使用"
+          - "向后兼容——无 GSD 时使用现有恢复机制"
+        failure_modes:
+          - scenario: "HANDOFF.json 已过期或损坏"
+            likelihood: low
+            impact: medium
+            mitigation: "每个恢复层级失败时降级到下一层级，最终回退到文件系统推断"
+        tech_stack:
+          - "Markdown (agent 定义)"
+        test_coverage: null
+
+  - id: "T11"
+    title: "增加上下文消耗感知指令"
+    description: |
+      创建 skills/gsd-bridge/context-awareness.md，参考 GSD 的 context-monitor 和 context-budget：
+      1. 定义上下文预算规则（适配 VS Code Copilot 环境）：
+         - 编排器上下文预算分配：自身逻辑 30% + 子代理结果 40% + 用户交互 30%
+         - 子代理调度时注入上下文预算提示："你正在被调度执行单个任务，保持输出简洁"
+         - 文件读取深度控制：frontmatter + 前 20 行（摘要级），除非任务明确需要全文
+      2. 定义上下文退化信号（参考 GSD 的 Context Degradation Tiers 但简化）：
+         - 正常：正常调度，完整输出
+         - 经济模式：只读摘要，减少子代理并发
+         - 紧急模式：保存当前进度到 session memory，提示用户开新会话
+      3. 在 orchestrator 的 Constraints 部分增加引用：
+         - "加载 skills/gsd-bridge/context-awareness.md 以获取上下文预算规则"
+      4. 注意：VS Code Copilot 不支持 hook 机制，因此只能靠代理自律和指令约束，
+         不能像 GSD 那样通过 gsd-context-monitor.js 自动注入警告
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "上下文消耗感知"
+    priority: medium
+    status: pending
+    dependencies:
+      - "T05"
+    conflicts_with: []
+    context_files:
+      - path: "docs/plan/gsd-research/research_findings_project_management.yaml"
+        description: "GSD hooks_mechanism.context_monitor 和 context_budget 部分"
+      - path: "agents/gem-orchestrator.agent.md"
+        description: "orchestrator Constraints 部分"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 2
+        estimated_lines: 80
+        focus_area: "上下文预算与退化感知"
+        verification:
+          - "skills/gsd-bridge/context-awareness.md 存在"
+          - "上下文预算分配规则定义完整"
+          - "退化信号和对应行为定义清晰"
+          - "orchestrator Constraints 引用了 context-awareness.md"
+        acceptance_criteria:
+          - "上下文预算规则实用且不过度约束"
+          - "退化信号可被代理自检识别"
+          - "紧急模式有明确的保存和恢复路径"
+          - "适配 VS Code Copilot 的无 hook 环境"
+        failure_modes:
+          - scenario: "代理忽略上下文预算指令（无强制机制）"
+            likelihood: high
+            impact: medium
+            mitigation: "将关键规则写入 Constraints（最高优先级指令区），并在 subagent prompt 模板中重复"
+        tech_stack:
+          - "Markdown (技能文件)"
+        test_coverage: null
+
+  # ═══════════════════════════════════════════════════════════════
+  # Wave 5：文档与验证（2 任务并行）
+  # ═══════════════════════════════════════════════════════════════
+
+  - id: "T12"
+    title: "编写 GSD 集成用户指南"
+    description: |
+      创建 docs/gsd-integration-guide.md，面向用户的集成指南：
+      1. "概述" 段：解释 GSD + Superpowers 的混合架构价值
+         - GSD 负责什么：项目初始化、里程碑管理、阶段规划、状态持久化
+         - Superpowers 负责什么：专业化审查（安全、性能、无障碍、E2E 测试等）
+      2. "安装" 段：
+         - 前置条件：Node.js 18+
+         - 步骤 1：安装 GSD（npx get-shit-done-cc --copilot）
+         - 步骤 2：安装 Superpowers（./install.sh --insiders 或 install.ps1）
+         - 安装顺序无关紧要
+      3. "使用流程" 段：
+         - 典型工作流：/gsd-new-project → /gsd-plan-phase → /gsd-execute-phase → @gem-orchestrator 审查
+         - GSD 命令表（常用 10 个）+ Superpowers 命令表（常用 5 个）
+         - 混合使用示例：在 GSD execute 阶段用 @security-reviewer 做安全审计
+      4. "常见问题" 段：
+         - Q: 不安装 GSD 能用 Superpowers 吗？A: 能，完全独立工作
+         - Q: 两者命令会冲突吗？A: 不会，/gsd-* 和 /sp-* 前缀隔离
+      5. 全部使用简体中文
+    wave: 5
+    agent: gem-documentation-writer
+    prototype: false
+    covers:
+      - "用户文档"
+    priority: medium
+    status: pending
+    dependencies:
+      - "T05"
+      - "T08"
+      - "T09"
+    conflicts_with: []
+    context_files:
+      - path: "README.md"
+        description: "当前 README"
+      - path: "skills/gsd-bridge/SKILL.md"
+        description: "GSD 桥接技能"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 200
+        focus_area: "用户面向的集成文档"
+        verification:
+          - "docs/gsd-integration-guide.md 存在"
+          - "包含概述、安装、使用流程、常见问题 4 个段落"
+          - "全部使用简体中文"
+          - "安装步骤可操作"
+        acceptance_criteria:
+          - "新用户能按文档完成安装和首次使用"
+          - "混合使用示例具体可执行"
+          - "常见问题覆盖主要疑虑"
+        failure_modes:
+          - scenario: "GSD 安装步骤过时"
+            likelihood: low
+            impact: low
+            mitigation: "引用 GSD 官方 README 作为权威安装指南"
+        tech_stack:
+          - "Markdown"
+        test_coverage: null
+        task_type: documentation
+        audience: end-users
+        coverage_matrix:
+          - "安装流程"
+          - "混合使用工作流"
+          - "命令对照表"
+          - "常见问题"
+
+  - id: "T13"
+    title: "创建集成验收测试场景"
+    description: |
+      创建 tests/gsd-integration/ 目录下的验收测试场景文件：
+      1. 创建 tests/gsd-integration/test-scenarios.md：
+         场景 1：纯 Superpowers 项目（无 .planning/ 目录）
+           - 验证：orchestrator 行为与当前完全一致
+           - 预期：gsd_mode=false，所有原有路径正常
+         场景 2：GSD 已初始化的项目（有 .planning/ + STATE.md）
+           - 验证：orchestrator 检测到 GSD 并读取状态
+           - 预期：gsd_mode=true，Status Summary 包含 GSD 状态行
+         场景 3：GSD execute 阶段 + 用户请求安全审查
+           - 验证：orchestrator 路由到 security-reviewer
+           - 预期：安全审查结果以标准完成协议返回
+         场景 4：中断后恢复（有 HANDOFF.json）
+           - 验证：orchestrator 检测恢复点并提供选项
+           - 预期：用户可选择继续或从头开始
+         场景 5：门控修订循环触发
+           - 验证：wave 完成后 gem-reviewer 发现问题并触发修订
+           - 预期：问题被发回修复（max 3 次），停滞时升级
+      2. 每个场景包含：前置条件、执行步骤、预期结果、验证方法
+    wave: 5
+    agent: gem-implementer
+    prototype: false
+    covers:
+      - "集成验收测试"
+    priority: medium
+    status: pending
+    dependencies:
+      - "T05"
+      - "T08"
+      - "T09"
+      - "T10"
+    conflicts_with: []
+    context_files:
+      - path: "tests/"
+        description: "现有测试目录"
+      - path: "docs/testing.md"
+        description: "测试文档"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 150
+        focus_area: "验收测试场景设计"
+        verification:
+          - "tests/gsd-integration/test-scenarios.md 存在"
+          - "包含 5 个验收场景"
+          - "每个场景有前置条件、步骤、预期结果"
+          - "覆盖向后兼容、GSD 检测、专业代理路由、恢复、门控 5 个核心能力"
+        acceptance_criteria:
+          - "5 个场景覆盖所有核心集成路径"
+          - "场景可被人工或自动化方式执行"
+          - "预期结果具体可验证"
+          - "向后兼容场景确认无回归"
+        failure_modes:
+          - scenario: "测试场景过于理想化，忽略边界情况"
+            likelihood: low
+            impact: low
+            mitigation: "每个场景包含至少一个边界条件（如文件缺失、格式错误等）"
+        tech_stack:
+          - "Markdown (测试场景文档)"
+        test_coverage: null
+
+# ═══════════════════════════════════════════════════════════════
+# Future Work（不在本计划范围内）
+# ═══════════════════════════════════════════════════════════════
+# 以下能力被评估为低优先级或依赖外部变化，列为未来工作：
+#
+# 1. 代理工具权限矩阵 — VS Code Copilot 当前不支持按代理限制工具访问，
+#    需要等待 Copilot API 支持或通过指令级约束实现（效果有限）
+#
+# 2. GSD SDK TypeScript API 集成 — 可以直接调用 GSD 的 SDK 而非文件系统解析，
+#    但这会引入对 GSD 内部 API 的紧耦合，与"只读上游"原则冲突
+#
+# 3. 知识图谱 (graphify) 集成 — GSD 的知识图谱能力很强，
+#    但我们的代理系统暂时没有对应的消费场景
+#
+# 4. GSD 的 intel 系统（files.json, apis.json 等）集成 — 
+#    可以增强 gem-researcher 的代码库分析能力，但需要先验证 intel 格式的稳定性
+#
+# 5. 双向状态同步 — 当前设计是只读 GSD 状态，未来可考虑在我们的审查完成后
+#    将结果写入 GSD 的 .planning/ 目录（需要 GSD 提供写入 API 或约定）
+
+planning_pass: 1
+planning_history:
+  - pass: 1
+    reason: "初始规划——基于 GSD 研究发现的深度分析创建整合计划"
+    timestamp: "2026-04-15"
