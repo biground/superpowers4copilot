@@ -1,0 +1,1597 @@
+plan_id: gsd-integration-v2
+objective: |
+  以 GSD 为主体，将 superpowers4copilot 的精华内容注入 GSD，形成统一的项目管理 + 专业代理系统。
+  方向完全逆转：GSD 仓库（/Users/biground/.copilot/get-shit-done/）为工作仓库，
+  SP 仓库（/Users/biground/.copilot/superpowers4copilot/）为源材料参考。
+created_at: "2026-04-15"
+created_by: gem-planner
+status: pending_approval
+research_confidence: high
+
+plan_metrics:
+  wave_1_task_count: 3
+  total_dependencies: 28
+  risk_score: medium
+
+tldr: |
+  分 5 个 Wave、21 个任务完成整合。所有工作在 GSD 仓库中执行。
+
+  Wave 1（3 任务并行）: 基础准备——格式转换参考文档、复制 skills/ 到 GSD、分析 install.js Copilot 集成逻辑
+  Wave 2（4 任务并行）: 技能适配 + 新 Agent 添加——适配 skills/ 工具引用、添加 gem-orchestrator + narrative-writer + critic
+  Wave 3（7 任务并行）: GSD Agent 功能注入——向 7 类 GSD agent 注入 SP 特色能力
+  Wave 4（4 任务并行）: 命令集成——修改现有命令引用 skills + 创建 SP 独有命令
+  Wave 5（3 任务）: 安装集成 + 文档 + 验证
+
+  关键发现：GSD install.js 已内置 --copilot 模式，自动做 Claude Code→Copilot 工具名映射和路径转换。
+  因此所有 agent/command/skill 文件用 Claude Code 格式编写即可，安装时自动适配。
+
+open_questions:
+  - "GSD install.js 的 claudeToCopilotTools 映射是否覆盖了 SP agents 使用的所有工具？"
+  - "skills/ 目录是否需要加入 package.json 的 files 字段才能随 npm 包发布？"
+  - "gem-orchestrator 在 Claude Code 环境下是否应该作为 agent 还是作为 workflow？"
+
+pre_mortem:
+  overall_risk_level: medium
+  critical_failure_modes:
+    - scenario: "SP agent 格式转换丢失关键逻辑——VS Code 特有的 EXTREMELY-IMPORTANT sub-agent 约束块在 Claude Code 格式中无对应物"
+      likelihood: medium
+      impact: high
+      mitigation: "格式转换参考文档（T01）中明确列出每个 VS Code 特有块的 Claude Code 等价处理方式；XML <role> 块中可保留约束语义"
+    - scenario: "skills/ 中的 VS Code 工具引用（vscode_askQuestions 等）在 Claude Code 环境下不可用，导致 skill 执行失败"
+      likelihood: high
+      impact: high
+      mitigation: "T04 专门适配 skills，建立工具名映射表（vscode_askQuestions→AskUserQuestion），使用条件检测逻辑"
+    - scenario: "注入内容过多导致 GSD agent 文件膨胀，超出 Claude Code 的 agent 加载预算"
+      likelihood: medium
+      impact: medium
+      mitigation: "每个注入严格控制在 30-50 行以内；详细内容引用 skills/ 文件而非内联；保持 GSD 原有结构不变"
+    - scenario: "gem-orchestrator 在 Claude Code 中角色定位冲突——Claude Code 用命令编排，不需要独立 orchestrator agent"
+      likelihood: medium
+      impact: medium
+      mitigation: "gem-orchestrator 在 Claude Code 中定位为 workflow advisor（顾问角色），主编排由 GSD commands 处理；在 Copilot 中保持核心路由器定位"
+    - scenario: "新增命令与 GSD 现有命令命名冲突或语义重叠"
+      likelihood: low
+      impact: medium
+      mitigation: "SP 独有命令统一使用 sp- 前缀（gsd:sp-brainstorm 等），与 GSD 原有命令天然隔离"
+  assumptions:
+    - "工作仓库为 /Users/biground/.copilot/get-shit-done/（用户的 GSD fork）"
+    - "源材料仓库为 /Users/biground/.copilot/superpowers4copilot/"
+    - "GSD 的 bin/lib/*.cjs、sdk/、hooks/ 等核心 CLI 文件不修改"
+    - "修改范围：agents/*.md、commands/gsd/*.md、新增 skills/ 目录、package.json files 字段"
+    - "GSD install.js 的 --copilot 模式会自动做工具名映射和路径转换"
+    - "所有新文件使用 Claude Code 格式（GSD 原生格式），Copilot 适配由 install.js 处理"
+    - "install.sh 和 install.ps1 同步更新规则仅适用于 SP 仓库，GSD 仓库不适用"
+
+implementation_specification:
+  code_structure: |
+    以 GSD 仓库为基础，做三类操作：
+    1. 新增：skills/ 目录（从 SP 复制并适配）+ 3 个新 agent 文件
+    2. 修改：8 个 GSD agent 文件（注入 SP 特色能力）+ 4 个 GSD command 文件（引用 skills）
+    3. 创建：6-8 个新 GSD command 文件（SP 独有功能的命令入口）
+    所有文件统一使用 GSD 的 Claude Code 格式（YAML frontmatter + XML 结构化内容）。
+
+  affected_areas:
+    - "skills/ — 新增目录，从 SP 复制全部技能并适配工具引用"
+    - "agents/ — 修改 8 个现有 agent + 新增 3 个 agent"
+    - "commands/gsd/ — 修改 4 个现有命令 + 新增 6-8 个命令"
+    - "package.json — files 字段增加 skills"
+
+  component_details:
+    - component: "skills/"
+      responsibility: "专业技能库——brainstorming、TDD、systematic-debugging、writing-plans、executing-plans 等"
+      interfaces:
+        - "每个 skill 有 SKILL.md 入口文件，agent/command 通过读取 SKILL.md 加载技能"
+        - "技能引用路径：~/.claude/get-shit-done/skills/<name>/SKILL.md（全局安装）或 skills/<name>/SKILL.md（本地安装）"
+    - component: "agents/gem-orchestrator.md"
+      responsibility: "多 agent 编排核心——阶段检测、agent 路由、结果综合。Claude Code 中为 workflow advisor，Copilot 中为主路由器"
+      interfaces:
+        - "可调度所有 GSD agent + SP 独有 agent"
+        - "技能触发：根据任务类型加载对应 skill"
+    - component: "agents/gem-narrative-writer.md"
+      responsibility: "Obsidian 叙事风格技术笔记写作——Scene→Conflict→Exploration→Discovery→Summary 叙事弧"
+      interfaces:
+        - "由 gsd-doc-writer 的 narrative 模式触发，或独立使用"
+        - "输出 Obsidian 兼容 Markdown（wikilinks, tags, callouts）"
+    - component: "agents/gsd-critic.md"
+      responsibility: "广范围批判性审查——覆盖 plan + code + architecture + design，融合 plan-checker 的目标反向验证 + gem-critic 的假设挑战"
+      interfaces:
+        - "可被命令或 orchestrator 独立触发"
+        - "输入：任何需要批判性审查的 artifact（计划、代码、架构设计）"
+
+  dependencies:
+    - component: "skills/ ↔ agents/"
+      relationship: "agents 通过 <required_reading> 或 project_context 中的 skill 加载指令引用 skills/"
+    - component: "skills/ ↔ commands/"
+      relationship: "commands 在 <execution_context> 中引用 skill 文件路径"
+    - component: "agents/ ↔ commands/"
+      relationship: "commands 的 agent: 字段指定由哪个 agent 执行"
+
+  integration_points:
+    - "GSD install.js --copilot 模式：自动将 Claude Code 格式转换为 Copilot 格式"
+    - "GSD 的 project_context 约定：agent 启动时检查 .claude/skills/ 或 .agents/skills/"
+    - "GSD 的 <required_reading> 机制：用于指定 agent 必读的 skill 文件"
+
+contracts:
+  - from_task: "T01"
+    to_task: "T05, T06, T07, T08-T14"
+    interface: "格式转换参考文档"
+    format: "Markdown 文档，包含 SP→GSD frontmatter 映射表、内容结构转换规则、VS Code 特有块处理方式"
+  - from_task: "T02"
+    to_task: "T04"
+    interface: "原始 skills/ 目录树"
+    format: "GSD 仓库中的 skills/ 目录，内容与 SP 仓库相同，尚未适配工具引用"
+  - from_task: "T04"
+    to_task: "T15, T16, T17, T18"
+    interface: "适配后的 skills/ 目录"
+    format: "工具引用已统一，路径已更新，可被 GSD commands 正确引用"
+  - from_task: "T03"
+    to_task: "T19"
+    interface: "install.js 分析报告"
+    format: "记录 --copilot 模式的文件复制逻辑、工具映射、路径转换规则，供安装脚本适配参考"
+  - from_task: "T05, T06, T07"
+    to_task: "T15"
+    interface: "新增 agent 文件名和能力描述"
+    format: "commands 中需要引用新 agent 名称（gem-orchestrator, gem-narrative-writer, gsd-critic）"
+
+tasks:
+  # ============================================================
+  # Wave 1: 基础准备（3 任务并行）
+  # ============================================================
+
+  - id: "T01"
+    title: "创建 SP→GSD agent 格式转换参考文档"
+    description: |
+      对比 SP 和 GSD 的 agent 文件格式差异，创建转换参考文档。
+
+      源文件（SP 格式示例）：
+      - /Users/biground/.copilot/superpowers4copilot/agents/gem-orchestrator.agent.md
+      - /Users/biground/.copilot/superpowers4copilot/agents/gem-critic.agent.md
+      - /Users/biground/.copilot/superpowers4copilot/agents/narrative-writer.agent.md
+
+      目标文件（GSD 格式示例）：
+      - /Users/biground/.copilot/get-shit-done/agents/gsd-planner.md
+      - /Users/biground/.copilot/get-shit-done/agents/gsd-executor.md
+      - /Users/biground/.copilot/get-shit-done/agents/gsd-debugger.md
+
+      输出文件：/Users/biground/.copilot/get-shit-done/docs/sp-to-gsd-format-guide.md
+
+      文档必须包含：
+      1. Frontmatter 映射表：
+         - SP: description, name, disable-model-invocation, user-invocable, model
+         - GSD: name, description, tools, color
+         - 映射规则（如 user-invocable 无对应字段，tools 需从内容推断）
+      2. 内容结构映射：
+         - SP: Markdown # 标题层级（# Role, # Expertise, # Composition）
+         - GSD: XML 标签（<role>, <process>, <project_context>）
+      3. VS Code 特有块处理：
+         - EXTREMELY-IMPORTANT sub-agent 约束块 → 移入 <role> 中作为约束段落
+         - disable-model-invocation → 删除（Claude Code 无此概念）
+         - user-invocable → 删除（Claude Code 中 agent 可被所有命令引用）
+      4. GSD 特有块需添加：
+         - <documentation_lookup> 块（Context7 MCP 查询模板）
+         - <project_context> 块（CLAUDE.md 读取 + skills 加载指令）
+      5. 文件扩展名：.agent.md → .md
+    wave: 1
+    agent: gem-researcher
+    prototype: false
+    priority: high
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/gem-orchestrator.agent.md"
+        description: "SP orchestrator agent，最复杂的 SP agent 示例"
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-planner.md"
+        description: "GSD planner agent，典型 GSD agent 格式"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 120
+        focus_area: "格式分析与文档编写"
+        verification:
+          - "文档包含完整的 frontmatter 映射表"
+          - "文档包含内容结构转换示例（至少 2 个 before/after 对比）"
+          - "文档列出所有 VS Code 特有块的处理方式"
+        acceptance_criteria:
+          - "docs/sp-to-gsd-format-guide.md 已创建在 GSD 仓库"
+          - "后续任务（T05-T14）可依据此文档完成格式转换而无需再参考 SP 原文件"
+        failure_modes:
+          - scenario: "遗漏某个 VS Code 特有字段的处理方式"
+            likelihood: low
+            impact: medium
+            mitigation: "逐字段对比 SP 的所有 agent frontmatter 和内容块"
+
+  - id: "T02"
+    title: "复制 skills/ 目录到 GSD 仓库 + 更新 package.json"
+    description: |
+      将 SP 的 skills/ 目录完整复制到 GSD 仓库，并更新 package.json 使其随 npm 包发布。
+
+      操作步骤：
+      1. 复制目录：
+         ```bash
+         cp -r /Users/biground/.copilot/superpowers4copilot/skills/ /Users/biground/.copilot/get-shit-done/skills/
+         ```
+      2. 确认复制结果（应有 15 个子目录）：
+         ```bash
+         ls -d /Users/biground/.copilot/get-shit-done/skills/*/
+         ```
+      3. 修改 /Users/biground/.copilot/get-shit-done/package.json：
+         在 "files" 数组中添加 "skills"：
+         ```json
+         "files": [
+           "bin",
+           "commands",
+           "get-shit-done",
+           "agents",
+           "hooks",
+           "scripts",
+           "skills"
+         ]
+         ```
+      4. 验证：
+         ```bash
+         cd /Users/biground/.copilot/get-shit-done && node -e "console.log(require('./package.json').files)"
+         ```
+         预期输出包含 "skills"。
+
+      注意：此步骤只做原样复制，不做内容修改。工具引用适配在 T04 中完成。
+    wave: 1
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/superpowers4copilot/skills/"
+        description: "SP 技能目录，包含 15 个技能子目录"
+      - path: "/Users/biground/.copilot/get-shit-done/package.json"
+        description: "GSD package.json，需要更新 files 字段"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 5
+        focus_area: "文件复制 + package.json 更新"
+        verification:
+          - "skills/ 目录存在于 GSD 仓库根目录"
+          - "skills/ 下有 15 个子目录（brainstorming, dispatching-parallel-agents 等）"
+          - "package.json files 数组包含 'skills'"
+        acceptance_criteria:
+          - "完整的 skills/ 目录已复制到 GSD 仓库"
+          - "package.json files 字段已包含 skills"
+        failure_modes:
+          - scenario: "复制时遗漏隐藏文件或符号链接"
+            likelihood: low
+            impact: low
+            mitigation: "使用 cp -r 确保递归复制，复制后用 diff -rq 对比"
+
+  - id: "T03"
+    title: "分析 GSD install.js 的 --copilot 模式"
+    description: |
+      深入分析 GSD 的 bin/install.js，记录 --copilot 安装模式的完整逻辑，为 T19 提供参考。
+
+      需要分析并记录的内容：
+      1. --copilot 模式下的安装目标目录（~/.copilot/ 或 .github/）
+      2. claudeToCopilotTools 映射表完整内容（line 38-53）
+      3. convertClaudeToCopilotContent() 函数的转换规则（路径映射、命令名转换）
+      4. 文件复制逻辑：哪些目录/文件被复制到 Copilot 配置目录
+      5. 是否已处理 skills/ 目录（大概率尚未处理）
+      6. Copilot instructions marker 机制（GSD_COPILOT_INSTRUCTIONS_MARKER）
+      7. agent 文件的 frontmatter 字段转换逻辑（tools → Copilot 等价物）
+
+      输出文件：/Users/biground/.copilot/get-shit-done/docs/install-copilot-analysis.md
+
+      分析重点文件：
+      - /Users/biground/.copilot/get-shit-done/bin/install.js（全文，约 800+ 行）
+
+      此分析结果直接指导 T19（安装脚本适配）的设计决策。
+    wave: 1
+    agent: gem-researcher
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies: []
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/bin/install.js"
+        description: "GSD 安装脚本，约 800+ 行 Node.js 代码"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 80
+        focus_area: "install.js 逆向分析"
+        verification:
+          - "文档记录了 --copilot 模式的安装目标目录"
+          - "文档包含完整的 claudeToCopilotTools 映射表"
+          - "文档记录了 skills/ 是否已被 install.js 处理"
+        acceptance_criteria:
+          - "docs/install-copilot-analysis.md 已创建在 GSD 仓库"
+          - "文档足以指导 T19 的安装脚本适配工作"
+        failure_modes:
+          - scenario: "install.js 代码过长导致分析遗漏关键逻辑分支"
+            likelihood: medium
+            impact: medium
+            mitigation: "使用 grep 定位所有 copilot 相关代码段，逐段分析"
+
+  # ============================================================
+  # Wave 2: 技能适配 + 新 Agent 添加（4 任务并行）
+  # ============================================================
+
+  - id: "T04"
+    title: "适配 skills/ 中的工具引用和路径"
+    description: |
+      对 GSD 仓库中新复制的 skills/ 目录进行适配，使其同时兼容 Claude Code 和 VS Code Copilot。
+
+      需要修改的内容：
+      1. 工具引用映射（在每个 SKILL.md 和引用文件中）：
+         - `vscode_askQuestions` → 添加说明："Claude Code 中使用 AskUserQuestion"
+         - `runSubagent` → 添加说明："Claude Code 中使用 Task()"
+         - `run_in_terminal` → 添加说明："Claude Code 中使用 Bash"
+         - `read_file` → 添加说明："Claude Code 中使用 Read"
+         - `manage_todo_list` → 添加说明："Claude Code 中使用 TodoWrite"
+      2. 路径引用更新：
+         - `docs/superpowers/specs/` → `docs/specs/`（或适合 GSD 的路径）
+         - `docs/superpowers/plans/` → `.planning/` 或 `docs/plans/`（与 GSD 约定对齐）
+         - 其他 SP 仓库特有路径
+      3. 添加运行时检测提示（在每个 SKILL.md 顶部添加）：
+         ```markdown
+         > **Runtime Note:** 本技能的工具名称使用通用格式。
+         > Claude Code: Read/Write/Bash/Task/AskUserQuestion
+         > VS Code Copilot: read_file/edit/run_in_terminal/runSubagent/vscode_askQuestions
+         ```
+
+      目标文件：skills/ 下所有 SKILL.md 和子文件
+      预估修改 15 个 SKILL.md + 若干子文件
+
+      验证方法：
+      ```bash
+      # 确保无残留的 SP 仓库特有路径
+      grep -r "superpowers4copilot\|docs/superpowers/" /Users/biground/.copilot/get-shit-done/skills/
+      ```
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T02"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/skills/"
+        description: "从 SP 复制的 skills 目录（T02 的产出）"
+      - path: "/Users/biground/.copilot/get-shit-done/bin/install.js"
+        description: "参考 claudeToCopilotTools 映射表（line 38-53）"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 3
+        estimated_lines: 200
+        focus_area: "工具名和路径的批量替换 + 运行时提示添加"
+        verification:
+          - "grep 搜索无残留的 SP 仓库路径引用"
+          - "每个 SKILL.md 包含运行时工具对照说明"
+          - "所有 vscode_askQuestions 引用旁附有 Claude Code 等价物说明"
+        acceptance_criteria:
+          - "skills/ 中无 SP 仓库特有路径引用"
+          - "每个 SKILL.md 有运行时兼容提示"
+          - "技能内容的核心逻辑未被修改"
+        failure_modes:
+          - scenario: "批量替换误改了技能内容中的示例代码或文档引用"
+            likelihood: medium
+            impact: medium
+            mitigation: "使用精确的 grep + sed 模式，替换前先 dry-run 列出所有匹配"
+        tech_stack:
+          - "bash (grep, sed)"
+
+  - id: "T05"
+    title: "添加 gem-orchestrator 到 GSD（格式转换）"
+    description: |
+      将 SP 的 gem-orchestrator.agent.md 转换为 GSD 格式，添加到 GSD 的 agents/ 目录。
+
+      源文件：/Users/biground/.copilot/superpowers4copilot/agents/gem-orchestrator.agent.md
+      输出文件：/Users/biground/.copilot/get-shit-done/agents/gem-orchestrator.md
+
+      转换要点（参照 T01 产出的格式转换参考文档）：
+      1. Frontmatter 转换：
+         ```yaml
+         ---
+         name: gem-orchestrator
+         description: "多 agent 编排核心：阶段检测、agent 路由、结果综合。"
+         tools: Read, Bash, Grep, Glob, Task, AskUserQuestion
+         color: "#6366F1"
+         ---
+         ```
+      2. 内容结构：# Role → <role>，# Composition → <orchestration>
+      3. Available Agents 列表更新——合并 GSD 和 SP agent：
+         - GSD: gsd-planner, gsd-executor, gsd-code-reviewer, gsd-debugger, gsd-doc-writer, gsd-security-auditor, gsd-ui-researcher 等
+         - SP 独有: gem-narrative-writer, gsd-critic
+      4. 添加 <project_context> 块（GSD 标准模板）
+      5. 添加 <documentation_lookup> 块（Context7 MCP 模板）
+      6. 保留核心编排逻辑：Phase Detection、Agent Routing、Result Synthesis
+      7. 移除 VS Code 特有的 EXTREMELY-IMPORTANT sub-agent 约束块
+      8. 添加 GSD 风格的 <runtime_note> 说明 Copilot 中的工具替代关系
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/gem-orchestrator.agent.md"
+        description: "SP orchestrator 原文件"
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-planner.md"
+        description: "GSD agent 格式参考"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 250
+        focus_area: "格式转换 + agent 列表合并"
+        verification:
+          - "frontmatter 包含 name, description, tools, color"
+          - "内容使用 XML 标签结构（<role>, <orchestration>, <project_context>）"
+          - "Available Agents 包含 GSD 和 SP 独有 agent"
+          - "无 VS Code 特有语法残留"
+        acceptance_criteria:
+          - "agents/gem-orchestrator.md 已创建在 GSD 仓库"
+          - "文件格式与其他 GSD agent 一致"
+          - "编排逻辑完整保留"
+        failure_modes:
+          - scenario: "编排逻辑在格式转换中丢失关键路由规则"
+            likelihood: medium
+            impact: high
+            mitigation: "逐节对比 SP 原文件，确保每个 Phase（Discuss/Research/Plan/Execute/Summary）的路由规则完整保留"
+
+  - id: "T06"
+    title: "添加 narrative-writer 到 GSD（格式转换）"
+    description: |
+      将 SP 的 narrative-writer.agent.md 转换为 GSD 格式。
+
+      源文件：/Users/biground/.copilot/superpowers4copilot/agents/narrative-writer.agent.md
+      输出文件：/Users/biground/.copilot/get-shit-done/agents/gem-narrative-writer.md
+
+      转换要点：
+      1. Frontmatter：
+         ```yaml
+         ---
+         name: gem-narrative-writer
+         description: "Obsidian 叙事风格技术笔记写作。将技术经验和学习转化为引人入胜的叙事笔记。"
+         tools: Read, Write, Bash, Grep, Glob
+         color: "#F59E0B"
+         ---
+         ```
+      2. 保留核心写作哲学：Scene→Conflict→Exploration→Discovery→Summary 叙事弧
+      3. 保留 Obsidian 兼容输出（wikilinks, tags, YAML frontmatter, callout blocks）
+      4. 保留中文写作 + 英文技术术语的风格约束
+      5. 添加 <project_context>、<documentation_lookup> GSD 标准模板
+      6. 移除 VS Code 特有块
+
+      注意：此 agent 与 gsd-doc-writer 互补而非替代。gsd-doc-writer 负责代码文档（README, API doc），
+      gem-narrative-writer 负责个人学习笔记和叙事风格内容。
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/narrative-writer.agent.md"
+        description: "SP narrative-writer 原文件"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 150
+        focus_area: "格式转换"
+        verification:
+          - "frontmatter 包含 name, description, tools, color"
+          - "叙事弧结构完整保留"
+          - "Obsidian 兼容性指令完整保留"
+        acceptance_criteria:
+          - "agents/gem-narrative-writer.md 已创建在 GSD 仓库"
+          - "文件格式与 GSD agent 一致"
+        failure_modes:
+          - scenario: "叙事写作的中文风格要求在格式转换中被淡化"
+            likelihood: low
+            impact: medium
+            mitigation: "确保所有中文写作指令完整保留在 <role> 或专用模板块中"
+
+  - id: "T07"
+    title: "创建融合版 gsd-critic agent"
+    description: |
+      基于 GSD 的 gsd-plan-checker + gsd-assumptions-analyzer，注入 gem-critic 的广范围批判能力，
+      创建一个新的综合性 critic agent。
+
+      参考文件：
+      - /Users/biground/.copilot/get-shit-done/agents/gsd-plan-checker.md（目标反向计划验证）
+      - /Users/biground/.copilot/get-shit-done/agents/gsd-assumptions-analyzer.md（假设分析 + 证据引用）
+      - /Users/biground/.copilot/superpowers4copilot/agents/gem-critic.agent.md（广范围挑战：plan + code + architecture + design）
+
+      输出文件：/Users/biground/.copilot/get-shit-done/agents/gsd-critic.md
+
+      融合策略：
+      1. 保留 gsd-plan-checker 的核心——目标反向验证方法论（"从阶段应交付什么出发"）
+      2. 保留 gsd-assumptions-analyzer 的结构化假设输出（areas, alternatives, evidence depth）
+      3. 注入 gem-critic 的扩展范围：
+         - 不仅检查 plan，还能检查 code、architecture、design
+         - 过度工程检测："这个抽象层真的需要吗？"
+         - 边缘案例发现："如果输入为空/null/超大怎么办？"
+         - 逻辑缺口识别："步骤 A 到步骤 B 之间缺了什么？"
+      4. GSD 格式：frontmatter(name, description, tools, color) + XML 结构
+
+      注意：gsd-plan-checker 和 gsd-assumptions-analyzer 保持不变——它们仍被各自的 workflow 独立调用。
+      gsd-critic 是一个新的通用 critic，可被 orchestrator 或用户直接调用。
+    wave: 2
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-plan-checker.md"
+        description: "GSD 计划检查器，目标反向验证"
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-assumptions-analyzer.md"
+        description: "GSD 假设分析器，结构化证据引用"
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/gem-critic.agent.md"
+        description: "SP critic，广范围批判性审查"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 200
+        focus_area: "三源融合"
+        verification:
+          - "文件包含 plan/code/architecture/design 四种审查模式"
+          - "保留了目标反向验证方法论"
+          - "格式与 GSD agent 一致"
+        acceptance_criteria:
+          - "agents/gsd-critic.md 已创建在 GSD 仓库"
+          - "覆盖范围超过 gsd-plan-checker（不仅限于 plan 检查）"
+          - "原有 gsd-plan-checker 和 gsd-assumptions-analyzer 未被修改"
+        failure_modes:
+          - scenario: "融合后的 agent 文件过长，超出上下文预算"
+            likelihood: medium
+            impact: medium
+            mitigation: "控制在 200 行以内；详细检查规则引用 skills/ 或 references/ 文件而非内联"
+
+  # ============================================================
+  # Wave 3: GSD Agent 功能注入（7 任务并行）
+  # ============================================================
+
+  - id: "T08"
+    title: "gsd-planner ← 注入 DAG/wave 调度 + pre-mortem 风险分析"
+    description: |
+      修改 GSD 的 gsd-planner agent，注入 SP gem-planner 的 DAG 调度和风险分析能力。
+
+      目标文件：/Users/biground/.copilot/get-shit-done/agents/gsd-planner.md
+
+      注入内容（控制在 40 行以内）：
+
+      1. 在 <role> 块的 "Core responsibilities" 列表中追加：
+         - "设计 DAG 任务依赖图，按 wave 分组最大化并行执行"
+         - "为 high/medium 优先级任务进行 pre-mortem 风险分析"
+
+      2. 在 PLAN.md 输出模板相关章节追加 DAG 概念：
+         ```
+         ## DAG 调度（可选增强）
+         当任务间有依赖关系时，按 wave 分组：
+         - Wave 1: 无依赖的任务（可并行）
+         - Wave N: 依赖 wave N-1 任务完成的任务
+         每个任务标注 wave 编号和依赖列表。
+         ```
+
+      3. 追加 pre-mortem 章节：
+         ```
+         ## Pre-mortem 风险分析（complex 项目必选）
+         在提交 PLAN.md 前，对每个 high/medium 优先级任务：
+         1. 假设此任务失败——最可能的原因是什么？
+         2. 影响：此失败如何影响下游任务？
+         3. 缓解：提前可做什么来降低风险？
+         将分析结果写入 PLAN.md 的 ## Risk Analysis 节。
+         ```
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/agents/gem-planner.agent.md（DAG 设计、wave 分配、pre-mortem 章节）
+
+      约束：不修改 GSD planner 的现有逻辑，仅在合适位置追加内容。
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-planner.md"
+        description: "GSD planner agent 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/gem-planner.agent.md"
+        description: "SP planner，DAG/wave/pre-mortem 的来源"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 50
+        focus_area: "追加 DAG 和 pre-mortem 内容"
+        verification:
+          - "gsd-planner.md 包含 DAG/wave 调度说明"
+          - "gsd-planner.md 包含 pre-mortem 风险分析指引"
+          - "原有 GSD 计划流程逻辑未被改动"
+        acceptance_criteria:
+          - "gsd-planner.md 中新增了 DAG wave 分组概念"
+          - "gsd-planner.md 中新增了 pre-mortem 分析指引"
+          - "现有 GSD planner 的 plan-phase 流程不受影响"
+        failure_modes:
+          - scenario: "注入内容与 GSD planner 现有的 task 分解逻辑冲突"
+            likelihood: low
+            impact: medium
+            mitigation: "DAG/wave 以'可选增强'形式追加，不覆盖现有的 2-3 task/phase 约束"
+
+  - id: "T09"
+    title: "gsd-executor ← 注入 TDD 纪律（Red-Green-Refactor）"
+    description: |
+      修改 GSD 的 gsd-executor agent，注入 SP 的 TDD 纪律。
+
+      目标文件：/Users/biground/.copilot/get-shit-done/agents/gsd-executor.md
+
+      注入内容（控制在 30 行以内）：
+
+      1. 在 <role> 块追加 TDD 原则：
+         ```
+         **TDD 纪律（当 plan 标记 type="tdd" 时强制执行）：**
+         - Red: 先写失败的测试——运行它，确认它失败
+         - Green: 写最小代码让测试通过——不多不少
+         - Refactor: 清理代码，保持测试通过
+         - "如果你没看到测试失败，你不知道它是否测试了正确的东西"
+         - 详细 TDD 流程参见：skills/test-driven-development/SKILL.md
+         ```
+
+      2. 在 project_context 或 skill 加载部分追加：
+         ```
+         如果 PLAN.md 中 task type 为 "tdd"：
+         - 必须读取 skills/test-driven-development/SKILL.md
+         - 严格遵循 Red-Green-Refactor 循环
+         ```
+
+      注意：GSD 已有 TDD 参考（get-shit-done/references/tdd.md），本注入与其互补而非替代。
+      GSD 的 tdd.md 是 TDD 计划结构指引，SP 的 TDD skill 是执行纪律。
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/skills/test-driven-development/SKILL.md
+      - /Users/biground/.copilot/get-shit-done/get-shit-done/references/tdd.md
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-executor.md"
+        description: "GSD executor agent 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/skills/test-driven-development/SKILL.md"
+        description: "SP TDD 技能——执行纪律"
+      - path: "/Users/biground/.copilot/get-shit-done/get-shit-done/references/tdd.md"
+        description: "GSD TDD 参考——计划结构"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 40
+        focus_area: "追加 TDD 执行纪律"
+        verification:
+          - "gsd-executor.md 包含 Red-Green-Refactor 纪律说明"
+          - "包含对 skills/test-driven-development/SKILL.md 的引用"
+          - "与 GSD 现有 references/tdd.md 不冲突"
+        acceptance_criteria:
+          - "gsd-executor.md 新增了 TDD 纪律段落"
+          - "当 plan 标记 tdd 类型时，executor 知道要读取 TDD skill"
+        failure_modes:
+          - scenario: "TDD 纪律与 GSD executor 的 atomic commit 流程冲突"
+            likelihood: low
+            impact: low
+            mitigation: "TDD 纪律是流程叠加（先测试后实现），不改变 commit 策略"
+        tech_stack:
+          - "markdown"
+
+  - id: "T10"
+    title: "gsd-code-reviewer ← 注入双层审查概念"
+    description: |
+      修改 GSD 的 gsd-code-reviewer agent，注入 SP 的双层审查概念。
+
+      目标文件：/Users/biground/.copilot/get-shit-done/agents/gsd-code-reviewer.md
+
+      注入内容（控制在 25 行以内）：
+
+      GSD 已有 quick/standard/deep 三种 review mode。注入 SP 的概念层级：
+      1. 在 <depth_levels> 节追加说明：
+         ```
+         ## 审查层级对照
+         - **基线审查（Baseline）** = quick + standard 模式：自动化扫描 + 常规检查。
+           适用于：每次 commit/PR 的常规检查。
+         - **深度审查（Deep）** = deep 模式 + 架构对齐检查。
+           适用于：重大功能完成、安全敏感变更、性能关键路径。
+           深度审查额外检查：
+           - 计划对齐：代码是否实现了 PLAN.md 中的意图？
+           - 架构一致性：变更是否符合项目的架构决策？
+           - 边界检查：输入验证、错误处理、资源释放是否完整？
+           详细审查流程参见：skills/requesting-code-review/SKILL.md
+         ```
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/agents/gem-reviewer.agent.md（基线审查）
+      - /Users/biground/.copilot/superpowers4copilot/agents/code-reviewer.md（深度审查）
+      - /Users/biground/.copilot/superpowers4copilot/skills/requesting-code-review/SKILL.md
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-code-reviewer.md"
+        description: "GSD code-reviewer 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/skills/requesting-code-review/SKILL.md"
+        description: "SP 代码审查技能"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 30
+        focus_area: "追加双层审查概念"
+        verification:
+          - "gsd-code-reviewer.md 包含 Baseline/Deep 审查层级说明"
+          - "包含对 skills/requesting-code-review/SKILL.md 的引用"
+        acceptance_criteria:
+          - "gsd-code-reviewer.md 新增了双层审查概念"
+          - "原有 quick/standard/deep 模式未被修改"
+        failure_modes:
+          - scenario: "双层概念与 GSD 三模式定义产生语义混淆"
+            likelihood: low
+            impact: low
+            mitigation: "以'概念框架'形式追加，显式映射到 GSD 的 quick/standard/deep"
+
+  - id: "T11"
+    title: "gsd-debugger ← 注入同一上下文诊断+修复 fallback"
+    description: |
+      修改 GSD 的 gsd-debugger agent，注入"同一上下文诊断+修复"作为轻量 fallback 模式。
+
+      目标文件：/Users/biground/.copilot/get-shit-done/agents/gsd-debugger.md
+
+      当前 GSD debugger 流程：
+      - 用户报告症状 → debugger 调查 → 找到根因 → 可选修复
+
+      注入内容（控制在 25 行以内）：
+      1. 在已有的 investigate 流程后追加 fallback 说明：
+         ```
+         ## 轻量修复模式（同一上下文）
+         当以下条件全部满足时，debugger 可在同一上下文中直接修复：
+         - 根因已明确定位到具体文件和行
+         - 修复范围 ≤ 20 行代码变更
+         - 修复不涉及架构变更
+         - 用户未使用 --diagnose 标志
+
+         此模式避免了 "诊断完成后切换到 executor 再重新理解问题" 的上下文切换成本。
+         对于超出上述范围的修复，仍然输出诊断报告由 executor 处理。
+
+         详细调试方法论参见：skills/systematic-debugging/SKILL.md
+         ```
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/skills/systematic-debugging/SKILL.md
+      - gem-implementer 的 end-to-end debug+fix 模式
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-debugger.md"
+        description: "GSD debugger agent 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/skills/systematic-debugging/SKILL.md"
+        description: "SP 系统化调试技能"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 30
+        focus_area: "追加轻量修复 fallback"
+        verification:
+          - "gsd-debugger.md 包含轻量修复模式说明"
+          - "包含清晰的触发条件（4 个条件）"
+          - "包含对 skills/systematic-debugging/SKILL.md 的引用"
+        acceptance_criteria:
+          - "gsd-debugger.md 新增了同一上下文修复 fallback"
+          - "原有科学方法论调试流程未被修改"
+        failure_modes:
+          - scenario: "轻量修复模式被误用于复杂 bug，导致不完整修复"
+            likelihood: medium
+            impact: medium
+            mitigation: "4 个触发条件作为硬门控，任一不满足则回退到标准流程"
+
+  - id: "T12"
+    title: "gsd-doc-writer ← 注入 Obsidian 叙事风格"
+    description: |
+      修改 GSD 的 gsd-doc-writer agent，注入 Obsidian 叙事风格作为新的文档模式。
+
+      目标文件：/Users/biground/.copilot/get-shit-done/agents/gsd-doc-writer.md
+
+      注入内容（控制在 35 行以内）：
+
+      1. 在 <modes> 节追加新模式：
+         ```xml
+         <narrative_mode>
+         叙事风格技术笔记。适用于 type: narrative 的 doc_assignment。
+
+         输出格式：Obsidian 兼容 Markdown
+         - YAML frontmatter（dates, tags, aliases）
+         - [[wikilinks]] 用于内部链接
+         - > [!note] / > [!warning] callout blocks
+         - #tags 用于分类
+
+         写作结构（叙事弧）：
+         1. Scene（场景）: 设定背景——我们在做什么？遇到了什么？
+         2. Conflict（冲突）: 核心问题——为什么现有方案不够？
+         3. Exploration（探索）: 尝试了什么？每条路的发现？
+         4. Discovery（发现）: 关键洞察——什么真正解决了问题？
+         5. Actionable Summary（可行总结）: 提炼原则，下次直接能用
+
+         禁止流水账式记录。每段要有叙事推动力。
+         中文为主，英文技术术语保持原样。
+
+         完整叙事写作指引参见：skills/narrative-writing/SKILL.md
+         如需独立的叙事写作 agent：使用 gem-narrative-writer
+         </narrative_mode>
+         ```
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/agents/narrative-writer.agent.md
+      - /Users/biground/.copilot/superpowers4copilot/skills/narrative-writing/SKILL.md
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-doc-writer.md"
+        description: "GSD doc-writer 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/narrative-writer.agent.md"
+        description: "SP narrative-writer，叙事风格来源"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 40
+        focus_area: "追加 narrative_mode"
+        verification:
+          - "gsd-doc-writer.md 包含 narrative_mode 块"
+          - "叙事弧 5 步骤完整"
+          - "包含对 skills/narrative-writing/SKILL.md 的引用"
+        acceptance_criteria:
+          - "gsd-doc-writer.md 新增了 narrative_mode"
+          - "原有 create/update/supplement/fix 模式未被修改"
+        failure_modes:
+          - scenario: "narrative_mode 与现有 doc_assignment type 枚举冲突"
+            likelihood: low
+            impact: low
+            mitigation: "在 type 枚举中新增 'narrative'，与现有 type 互不影响"
+
+  - id: "T13"
+    title: "gsd-security-auditor ← 注入主动 OWASP Top 10 扫描"
+    description: |
+      修改 GSD 的 gsd-security-auditor agent，注入主动安全扫描能力。
+
+      目标文件：/Users/biground/.copilot/get-shit-done/agents/gsd-security-auditor.md
+
+      当前 GSD security auditor：仅验证 PLAN.md 中声明的威胁缓解是否在代码中实现（被动验证）。
+
+      注入内容（控制在 30 行以内）：
+
+      1. 在 <execution_flow> 中追加主动扫描步骤：
+         ```
+         <step name="proactive_scan">
+         ## 主动安全扫描（Proactive Mode）
+         当 config 中 proactive_scan=true 或由 orchestrator 主动触发时，
+         除了验证已声明的威胁外，额外执行 OWASP Top 10 主动检查：
+
+         1. A01 访问控制失效: 检查缺少的权限检查、IDOR 风险
+         2. A02 加密失败: 检查明文敏感数据、弱加密函数
+         3. A03 注入: 检查 SQL/命令/路径注入风险
+         4. A04 不安全设计: 检查缺少的速率限制、输入验证
+         5. A05 安全配置错误: 检查默认凭据、过于宽松的 CORS
+         6. A06 易受攻击和过时的组件: 检查已知 CVE 的依赖
+         7. A07 认证和识别失败: 检查弱密码策略、缺失的 MFA
+         8. A08 软件和数据完整性失败: 检查不安全的反序列化
+         9. A09 安全日志和监控不足: 检查缺失的安全日志
+         10. A10 SSRF: 检查未验证的 URL 获取
+
+         扫描结果追加到 SECURITY.md 的 ## Proactive Findings 节。
+         每个发现标注严重性（Critical/High/Medium/Low）和修复建议。
+         </step>
+         ```
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/agents/security-reviewer.agent.md
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-security-auditor.md"
+        description: "GSD security-auditor 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/security-reviewer.agent.md"
+        description: "SP security-reviewer，主动扫描来源"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 35
+        focus_area: "追加主动 OWASP 扫描"
+        verification:
+          - "gsd-security-auditor.md 包含 proactive_scan 步骤"
+          - "OWASP Top 10 十项检查清单完整"
+          - "原有威胁验证流程未被修改"
+        acceptance_criteria:
+          - "gsd-security-auditor.md 新增了主动扫描模式"
+          - "原有的被动威胁验证模式不受影响"
+        failure_modes:
+          - scenario: "主动扫描产出过多 false positive"
+            likelihood: medium
+            impact: low
+            mitigation: "标注为 proactive findings（区别于 verified gaps），让审阅者自行判断"
+
+  - id: "T14"
+    title: "GSD UI agents ← 注入 Tailwind/组件框架实操知识"
+    description: |
+      修改 GSD 的 3 个 UI 相关 agent，注入 Tailwind CSS 和组件框架的实操知识。
+
+      目标文件（均在 /Users/biground/.copilot/get-shit-done/agents/ 下）：
+      1. gsd-ui-researcher.md — UI 研究/设计合约
+      2. gsd-ui-checker.md — UI 实现验证
+      3. gsd-ui-auditor.md — UI 审计
+
+      注入内容（每个文件约 15-20 行）：
+
+      对 gsd-ui-researcher.md 追加：
+      ```
+      ## 组件框架检测与建议
+      在设计 UI-SPEC.md 时，检测并利用项目的组件框架：
+      - shadcn/ui: 使用其组件 API，遵循 Radix + Tailwind 约定
+      - Tailwind CSS: 使用 utility-first 类名，避免自定义 CSS
+      - Headless UI: 利用无样式组件 + 自定义 Tailwind 样式
+      - 原生组件库: 检查是否有项目内置的设计系统
+      将检测到的框架记录在 UI-SPEC.md 的 ## Tech Stack 节。
+      ```
+
+      对 gsd-ui-checker.md 追加：
+      ```
+      ## Tailwind 实践检查
+      - 避免内联 style 属性（应使用 Tailwind 类名）
+      - 检查响应式断点使用是否一致（sm/md/lg/xl）
+      - 验证暗色模式支持（dark: 前缀使用）
+      ```
+
+      对 gsd-ui-auditor.md 追加：
+      ```
+      ## 组件框架一致性审计
+      - 是否混用了多个 CSS 方案（Tailwind + CSS Modules + styled-components）
+      - 组件 API 是否遵循框架约定（props 命名、slot 使用等）
+      ```
+
+      参考材料：
+      - /Users/biground/.copilot/superpowers4copilot/agents/gem-designer.agent.md
+    wave: 3
+    agent: gem-implementer
+    prototype: false
+    priority: low
+    status: pending
+    dependencies:
+      - "T01"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-ui-researcher.md"
+        description: "GSD UI researcher 原文件"
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-ui-checker.md"
+        description: "GSD UI checker（需确认文件名是否准确）"
+      - path: "/Users/biground/.copilot/get-shit-done/agents/gsd-ui-auditor.md"
+        description: "GSD UI auditor 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/agents/gem-designer.agent.md"
+        description: "SP designer，Tailwind/组件知识来源"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 3
+        estimated_lines: 60
+        focus_area: "追加 Tailwind/组件框架知识"
+        verification:
+          - "gsd-ui-researcher.md 包含组件框架检测指引"
+          - "gsd-ui-checker.md 包含 Tailwind 实践检查项"
+          - "gsd-ui-auditor.md 包含组件一致性审计项"
+        acceptance_criteria:
+          - "3 个 UI agent 文件均已更新"
+          - "注入内容针对实操场景（非理论文档）"
+        failure_modes: []
+
+  # ============================================================
+  # Wave 4: 命令集成（4 任务并行）
+  # ============================================================
+
+  - id: "T15"
+    title: "修改 GSD 现有命令引用 SP skills"
+    description: |
+      修改 4 个 GSD 现有命令，在执行上下文中添加对 SP skills 的引用。
+
+      目标文件与修改内容：
+
+      1. commands/gsd/plan-phase.md — 在 <execution_context> 追加：
+         ```
+         @~/.claude/get-shit-done/skills/writing-plans/SKILL.md
+         ```
+
+      2. commands/gsd/execute-phase.md（对应 workflow execute-phase.md）— 追加：
+         ```
+         @~/.claude/get-shit-done/skills/executing-plans/SKILL.md
+         ```
+         注意：需确认是 commands/gsd/execute-phase.md 还是通过 workflow 引用。
+
+      3. commands/gsd/debug.md — 在 <execution_context> 或 agent 提示中追加：
+         ```
+         @~/.claude/get-shit-done/skills/systematic-debugging/SKILL.md
+         ```
+
+      4. commands/gsd/code-review.md — 追加：
+         ```
+         @~/.claude/get-shit-done/skills/requesting-code-review/SKILL.md
+         ```
+
+      每个命令的修改方式：在 <execution_context> 块中添加一行 skill 引用。
+      如果命令没有 <execution_context> 块，在合适位置添加。
+
+      约束：不修改命令的核心流程逻辑，仅添加 skill 引用。
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T04"
+      - "T05"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/commands/gsd/plan-phase.md"
+        description: "GSD plan-phase 命令"
+      - path: "/Users/biground/.copilot/get-shit-done/commands/gsd/debug.md"
+        description: "GSD debug 命令"
+      - path: "/Users/biground/.copilot/get-shit-done/commands/gsd/code-review.md"
+        description: "GSD code-review 命令"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 3
+        estimated_lines: 20
+        focus_area: "添加 skill 引用到现有命令"
+        verification:
+          - "plan-phase.md 包含 writing-plans skill 引用"
+          - "debug.md 包含 systematic-debugging skill 引用"
+          - "code-review.md 包含 requesting-code-review skill 引用"
+          - "所有引用路径正确（~/.claude/get-shit-done/skills/...）"
+        acceptance_criteria:
+          - "4 个现有 GSD 命令已添加 SP skill 引用"
+          - "命令原有流程未受影响"
+        failure_modes:
+          - scenario: "skill 引用路径在安装后不存在（取决于安装位置）"
+            likelihood: medium
+            impact: medium
+            mitigation: "使用 GSD 约定的相对路径格式（@~/.claude/get-shit-done/...），与 install.js 安装位置一致"
+        tech_stack:
+          - "markdown"
+
+  - id: "T16"
+    title: "创建新命令：sp-brainstorm + sp-tdd"
+    description: |
+      创建 2 个 SP 独有功能的 GSD 命令。
+
+      输出文件：
+      1. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-brainstorm.md
+      2. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-tdd.md
+
+      命令格式参考 GSD 现有命令（如 plan-phase.md）。
+
+      sp-brainstorm.md:
+      ```yaml
+      ---
+      name: gsd:sp-brainstorm
+      description: "协作式头脑风暴——从想法到设计方案。在任何创意性工作之前使用。"
+      argument-hint: "[topic]"
+      allowed-tools:
+        - Read
+        - Write
+        - Bash
+        - Glob
+        - Grep
+        - Task
+        - AskUserQuestion
+      ---
+      <objective>
+      通过结构化的协作对话，将想法转化为完整的设计方案。
+      在编写任何实现代码之前，必须完成头脑风暴流程。
+      </objective>
+
+      <execution_context>
+      @~/.claude/get-shit-done/skills/brainstorming/SKILL.md
+      </execution_context>
+
+      <process>
+      读取并遵循 skills/brainstorming/SKILL.md 中的完整流程。
+      核心步骤：探索上下文 → 澄清问题（逐个） → 提出方案 → 展示设计 → 编写 spec
+      </process>
+      ```
+
+      sp-tdd.md（类似结构，触发 TDD skill）。
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T04"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/commands/gsd/plan-phase.md"
+        description: "GSD 命令格式参考"
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-brainstorm.prompt.md"
+        description: "SP brainstorm prompt 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-tdd.prompt.md"
+        description: "SP TDD prompt 原文件"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 2
+        estimated_lines: 80
+        focus_area: "创建 GSD 格式命令"
+        verification:
+          - "sp-brainstorm.md frontmatter 包含 name, description, allowed-tools"
+          - "sp-tdd.md 引用 skills/test-driven-development/SKILL.md"
+          - "两个命令格式与 GSD 现有命令一致"
+        acceptance_criteria:
+          - "commands/gsd/sp-brainstorm.md 已创建"
+          - "commands/gsd/sp-tdd.md 已创建"
+        failure_modes:
+          - scenario: "命令中的 allowed-tools 不匹配 skill 实际需要的工具"
+            likelihood: low
+            impact: low
+            mitigation: "参考 skill 内容确定实际需要的工具集"
+
+  - id: "T17"
+    title: "创建新命令：sp-subagent + sp-parallel + sp-worktree"
+    description: |
+      创建 3 个 SP 独有流程的 GSD 命令。
+
+      输出文件：
+      1. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-subagent.md
+      2. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-parallel.md
+      3. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-worktree.md
+
+      每个命令遵循 GSD 命令格式。
+
+      sp-subagent.md:
+      - 触发 skills/subagent-driven-development/SKILL.md
+      - 描述：子代理驱动开发——每步派遣独立代理完成
+      - allowed-tools: Read, Write, Bash, Glob, Grep, Task
+
+      sp-parallel.md:
+      - 触发 skills/dispatching-parallel-agents/SKILL.md
+      - 描述：并行代理调度——3+ 个独立任务同时进行
+      - allowed-tools: Read, Bash, Task
+
+      sp-worktree.md:
+      - 触发 skills/using-git-worktrees/SKILL.md
+      - 描述：Git Worktree 管理——在隔离环境中开发
+      - allowed-tools: Read, Bash, Grep
+
+      参考 SP prompts 原文件获取完整的流程描述。
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T04"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-subagent.prompt.md"
+        description: "SP subagent prompt 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-parallel.prompt.md"
+        description: "SP parallel prompt 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-worktree.prompt.md"
+        description: "SP worktree prompt 原文件"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 3
+        estimated_lines: 120
+        focus_area: "创建 GSD 格式命令"
+        verification:
+          - "3 个命令文件已创建"
+          - "每个命令引用对应的 skill 文件"
+          - "命令格式与 GSD 约定一致"
+        acceptance_criteria:
+          - "commands/gsd/ 下新增 sp-subagent.md, sp-parallel.md, sp-worktree.md"
+        failure_modes:
+          - scenario: "worktree 命令与 GSD 可能已有的 worktree 功能冲突"
+            likelihood: low
+            impact: low
+            mitigation: "使用 sp- 前缀天然隔离"
+
+  - id: "T18"
+    title: "创建新命令：sp-branch-finish + sp-code-review-recv"
+    description: |
+      创建 2 个 SP 独有流程的 GSD 命令。
+
+      输出文件：
+      1. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-branch-finish.md
+      2. /Users/biground/.copilot/get-shit-done/commands/gsd/sp-code-review-recv.md
+
+      sp-branch-finish.md:
+      - 触发 skills/finishing-a-development-branch/SKILL.md
+      - 描述：完成开发分支——清理、squash、合并准备
+      - allowed-tools: Read, Bash, Grep
+
+      sp-code-review-recv.md:
+      - 触发 skills/receiving-code-review/SKILL.md
+      - 描述：接收代码审查反馈——处理审查意见并修复
+      - allowed-tools: Read, Write, Edit, Bash, Grep, Glob
+
+      注意：GSD 已有 code-review.md（请求审查），sp-code-review-recv 是其互补
+      （接收反馈）。GSD 也有 code-review-fix.md，需确认是否有重叠。
+    wave: 4
+    agent: gem-implementer
+    prototype: false
+    priority: low
+    status: pending
+    dependencies:
+      - "T04"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-branch-finish.prompt.md"
+        description: "SP branch-finish prompt 原文件"
+      - path: "/Users/biground/.copilot/superpowers4copilot/prompts/sp-code-review-recv.prompt.md"
+        description: "SP code-review-recv prompt 原文件"
+      - path: "/Users/biground/.copilot/get-shit-done/commands/gsd/code-review-fix.md"
+        description: "GSD code-review-fix 命令，需检查与 sp-code-review-recv 的重叠"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 2
+        estimated_lines: 80
+        focus_area: "创建 GSD 格式命令"
+        verification:
+          - "2 个命令文件已创建"
+          - "每个命令引用对应的 skill 文件"
+          - "sp-code-review-recv 与 GSD code-review-fix 不冲突"
+        acceptance_criteria:
+          - "commands/gsd/ 下新增 sp-branch-finish.md, sp-code-review-recv.md"
+        failure_modes: []
+
+  # ============================================================
+  # Wave 5: 安装集成 + 文档 + 验证（3 任务）
+  # ============================================================
+
+  - id: "T19"
+    title: "适配安装脚本以包含 skills/"
+    description: |
+      确保 GSD 的安装流程包含新增的 skills/ 目录。
+
+      基于 T03 的分析结果，确定修改方案。
+
+      预期方案（待 T03 分析确认）：
+
+      方案 A（如果 install.js 已有统一的文件复制逻辑）：
+      - 在 install.js 的文件复制列表中添加 'skills' 目录
+      - 确保 --copilot 模式下 skills/ 也被复制到 Copilot 配置目录
+      - 确保 convertClaudeToCopilotContent() 也处理 skills/ 中的内容
+
+      方案 B（如果 install.js 改动过大或受约束限制）：
+      - 创建一个独立的 scripts/install-skills.sh 脚本
+      - 从 install.js 的后处理钩子调用此脚本
+      - 或在文档中说明额外的手动步骤
+
+      验证：
+      - npm pack 后检查 tarball 是否包含 skills/
+      - 模拟 --copilot --global 安装，检查 skills/ 是否被复制到目标目录
+
+      注意：此任务修改 bin/install.js，不属于"CLI 核心"（bin/lib/*.cjs），在允许范围内。
+    wave: 5
+    agent: gem-implementer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T03"
+      - "T04"
+      - "T15"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/bin/install.js"
+        description: "GSD 安装脚本"
+      - path: "/Users/biground/.copilot/get-shit-done/docs/install-copilot-analysis.md"
+        description: "T03 的分析产出"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: medium
+        estimated_files: 1
+        estimated_lines: 50
+        focus_area: "安装脚本适配"
+        verification:
+          - "npm pack 产出的 tarball 包含 skills/ 目录"
+          - "模拟 --copilot 安装后 skills/ 出现在目标配置目录"
+          - "install.js 的其他安装模式不受影响"
+        acceptance_criteria:
+          - "skills/ 目录在所有安装模式下均被正确安装"
+          - "现有安装流程不受影响"
+        failure_modes:
+          - scenario: "修改 install.js 引入 bug 影响其他运行时的安装"
+            likelihood: medium
+            impact: high
+            mitigation: "修改前备份 install.js；修改后用 --claude 和 --copilot 分别测试"
+        tech_stack:
+          - "javascript (node.js)"
+
+  - id: "T20"
+    title: "编写整合说明文档"
+    description: |
+      编写 GSD + SP 整合的说明文档，帮助用户理解整合后系统的能力。
+
+      输出文件：/Users/biground/.copilot/get-shit-done/docs/superpowers-integration.md
+
+      文档结构：
+      ```markdown
+      # Superpowers Integration
+
+      ## 概述
+      GSD + Superpowers 整合后的系统能力概览。
+
+      ## 新增 Agents
+      - gem-orchestrator: 多 agent 编排核心
+      - gem-narrative-writer: Obsidian 叙事写作
+      - gsd-critic: 广范围批判性审查
+
+      ## 增强的 GSD Agents
+      表格：每个增强的 GSD agent + 新增能力概述
+
+      ## Skills 技能库
+      所有可用 skills 列表 + 用途简介
+
+      ## 新增命令
+      所有 sp-* 命令列表 + 用途简介
+
+      ## 命令增强
+      已注入 skill 引用的 GSD 原有命令列表
+
+      ## 使用方式
+      - Claude Code: /gsd:sp-brainstorm, /gsd:sp-tdd 等
+      - VS Code Copilot: 通过 --copilot 安装后自动可用
+      ```
+    wave: 5
+    agent: gem-documentation-writer
+    prototype: false
+    priority: medium
+    status: pending
+    dependencies:
+      - "T05"
+      - "T06"
+      - "T07"
+      - "T15"
+      - "T16"
+      - "T17"
+      - "T18"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/agents/"
+        description: "所有 agent 文件（含新增和修改的）"
+      - path: "/Users/biground/.copilot/get-shit-done/commands/gsd/"
+        description: "所有 command 文件（含新增和修改的）"
+      - path: "/Users/biground/.copilot/get-shit-done/skills/"
+        description: "技能目录"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 150
+        focus_area: "整合文档编写"
+        verification:
+          - "文档包含所有新增 agent 的说明"
+          - "文档包含所有新增命令的说明"
+          - "文档包含 skills 列表"
+        acceptance_criteria:
+          - "docs/superpowers-integration.md 已创建"
+          - "文档内容准确反映实际的文件变更"
+        failure_modes: []
+        task_type: documentation
+        audience: developers
+        coverage_matrix:
+          - "新增 agents"
+          - "增强的 GSD agents"
+          - "skills 技能库"
+          - "新增命令"
+          - "使用方式"
+
+  - id: "T21"
+    title: "验收检查清单 + 基本验证"
+    description: |
+      创建并执行验收检查清单，验证整合的完整性和正确性。
+
+      输出文件：/Users/biground/.copilot/get-shit-done/docs/integration-checklist.md
+
+      检查清单：
+
+      1. 文件完整性：
+         ```bash
+         # 新增 agents 存在
+         ls agents/gem-orchestrator.md agents/gem-narrative-writer.md agents/gsd-critic.md
+
+         # skills 目录完整
+         ls -d skills/*/
+
+         # 新增 commands 存在
+         ls commands/gsd/sp-brainstorm.md commands/gsd/sp-tdd.md commands/gsd/sp-subagent.md \
+            commands/gsd/sp-parallel.md commands/gsd/sp-worktree.md commands/gsd/sp-branch-finish.md \
+            commands/gsd/sp-code-review-recv.md
+         ```
+
+      2. 格式一致性：
+         ```bash
+         # 所有 agent 文件有 YAML frontmatter
+         for f in agents/*.md; do head -1 "$f" | grep -q '^---' || echo "Missing frontmatter: $f"; done
+
+         # 新增 commands 有 name 字段
+         for f in commands/gsd/sp-*.md; do grep -q '^name:' "$f" || echo "Missing name: $f"; done
+         ```
+
+      3. 引用完整性：
+         ```bash
+         # skills 引用路径存在
+         grep -rh 'skills/' agents/ commands/ | grep -oP 'skills/[^/]+/SKILL\.md' | sort -u | \
+           while read p; do [ -f "$p" ] || echo "Missing: $p"; done
+         ```
+
+      4. 无 SP 残留：
+         ```bash
+         grep -r 'superpowers4copilot' agents/ commands/ skills/ && echo "FAIL: SP residue" || echo "PASS"
+         ```
+
+      5. GSD CLI 未受影响：
+         ```bash
+         node bin/install.js --help  # 应正常输出帮助信息
+         ```
+    wave: 5
+    agent: gem-reviewer
+    prototype: false
+    priority: high
+    status: pending
+    dependencies:
+      - "T08"
+      - "T09"
+      - "T10"
+      - "T11"
+      - "T12"
+      - "T13"
+      - "T14"
+      - "T19"
+    conflicts_with: []
+    context_files:
+      - path: "/Users/biground/.copilot/get-shit-done/"
+        description: "GSD 仓库根目录"
+    planning_pass: 1
+    planning_history:
+      - pass: 1
+        reason: "初始规划"
+        timestamp: "2026-04-15"
+        estimated_effort: small
+        estimated_files: 1
+        estimated_lines: 80
+        focus_area: "验收验证"
+        verification:
+          - "所有检查项均通过（PASS）"
+          - "无 SP 残留路径引用"
+          - "GSD CLI --help 正常输出"
+        acceptance_criteria:
+          - "验收检查清单已创建并执行"
+          - "所有 5 类检查项均通过"
+          - "发现的问题已记录并分配修复任务（如有）"
+        failure_modes:
+          - scenario: "验证发现格式或引用问题"
+            likelihood: medium
+            impact: low
+            mitigation: "检查清单即时发现问题，修复成本低（每个问题 1-2 分钟）"
+        requires_review: true
+        review_depth: standard
+        review_security_sensitive: false
+
+planning_pass: 1
+planning_history:
+  - pass: 1
+    reason: "v2 方向逆转：从 SP 加 GSD 感知 → GSD 为主体注入 SP 精华"
+    timestamp: "2026-04-15"
