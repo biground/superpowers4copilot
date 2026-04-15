@@ -4,7 +4,7 @@ description: |
   Technical writing specialist for developer-facing published content: technical blog posts, tutorials, ADRs, and educational guides.
   Scope: PUBLISHED technical content. For code documentation (API docs, README) use gem-documentation-writer. For personal learning notes in Obsidian use narrative-writer.
   Transforms complex technical concepts into clear, engaging, accessible written content.
-model: GPT-5
+model: inherit
 tools: ['codebase', 'edit/editFiles', 'search', 'web/fetch']
 ---
 
