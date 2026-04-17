@@ -65,14 +65,59 @@ cd $HOME\.copilot\superpowers4copilot
 
 安装脚本会将 prompt 文件、agents 和 skills 复制到 VS Code 用户目录的 `prompts/` 下。
 
+### KiloCode 安装
+
+**1. 克隆仓库**（同上）
+
+**2. 运行安装脚本**
+
+macOS / Linux:
+
+```bash
+cd ~/.copilot/superpowers4copilot
+./install.sh --kilocode
+```
+
+Windows (PowerShell):
+
+```powershell
+cd $HOME\.copilot\superpowers4copilot
+.\install.ps1 -Kilocode
+```
+
+安装脚本会将 agents、commands 和 skills 复制到 KiloCode 全局配置目录（`~/.kilo/`）。
+
 ### 卸载
 
 ```bash
 # macOS / Linux
 ./install.sh --uninstall
+./install.sh --kilocode --uninstall
 
 # Windows
 .\install.ps1 -Uninstall
+.\install.ps1 -Kilocode -Uninstall
+```
+
+Windows (PowerShell):
+
+```powershell
+cd $HOME\.copilot\superpowers4copilot
+.\install.ps1 -Kilocode
+```
+
+安装脚本会将 agents、commands 和 skills 复制到 KiloCode 全局配置目录（`~/.kilo/`）。
+
+### 卸载
+
+```bash
+# macOS / Linux
+./install.sh --uninstall
+./install.sh --kilocode --uninstall
+
+# Windows
+.\install.ps1 -Uninstall
+.\install.ps1 -Kilocode -Uninstall
 ```
 
 ### 更新
@@ -86,6 +131,10 @@ git pull
 ### 验证安装
 
 在 Copilot Chat 中输入 `@gem-orchestrator 你好`，如果代理能正常响应并进入阶段检测，说明安装成功。
+
+在 KiloCode 中输入 `@gem-orchestrator 你好`，如果代理能正常响应并进入阶段检测，说明安装成功。
+
+在 KiloCode 中输入 `@gem-orchestrator 你好`，如果代理能正常响应并进入阶段检测，说明安装成功。
 
 ## 代理系统
 
@@ -129,7 +178,7 @@ git pull
 
 ## Slash 命令
 
-在 Copilot Chat 中输入 `/` 触发：
+在 Copilot Chat 中输入 `/` 触发，或在 KiloCode 中输入 `/` 触发：
 
 | 命令 | 用途 |
 |:-----|:-----|
