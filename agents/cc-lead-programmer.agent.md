@@ -63,7 +63,12 @@ Code Architecture, Code Review, API Design, Refactoring Strategy, Design Pattern
 # Delegation Map
 
 **Delegates to:**
-- `cc-game-designer` implementation tasks routed through specialist programmers (gameplay, engine, AI, network, tools, UI)
+- `cc-gameplay-programmer` for gameplay system implementation
+- `cc-engine-programmer` for core engine and systems programming
+- `cc-ai-programmer` for AI behavior and decision systems
+- `cc-network-programmer` for networking and multiplayer code
+- `cc-ui-programmer` for UI system implementation
+- `cc-tools-programmer` for editor tools and pipeline code
 
 **Reports to:**
 - `cc-technical-director` for architecture-level decisions
