@@ -52,6 +52,12 @@ $PromptFiles = @(
     "sp-code-review-req.prompt.md"
     "sp-code-review-recv.prompt.md"
     "sp-global.instructions.md"
+    "cc-start.prompt.md"
+    "cc-brainstorm.prompt.md"
+    "cc-design-system.prompt.md"
+    "cc-setup-engine.prompt.md"
+    "cc-gate-check.prompt.md"
+    "cc-dev-story.prompt.md"
 )
 
 # KiloCode 卸载
@@ -283,6 +289,14 @@ Write-Host "  /sp-worktree         Git Worktree 管理"
 Write-Host "  /sp-branch-finish    完成开发分支"
 Write-Host "  /sp-code-review-req  请求代码审查"
 Write-Host "  /sp-code-review-recv 接收代码审查"
+Write-Host ""
+Write-Host "可用命令（Game Studio，在 Copilot Chat 中输入 / 触发）：" -ForegroundColor Cyan
+Write-Host "  /cc-start             项目引导上手"
+Write-Host "  /cc-brainstorm        游戏概念头脑风暴"
+Write-Host "  /cc-design-system     游戏系统 GDD 编写"
+Write-Host "  /cc-setup-engine      配置游戏引擎"
+Write-Host "  /cc-gate-check        阶段门禁检查"
+Write-Host "  /cc-dev-story         实现开发故事"
 Write-Host ""
 Write-Host "可用 Agents（在 Copilot Chat 中以 @ 触发）：" -ForegroundColor Cyan
 Write-Host "  @gem-orchestrator    多代理编排（主入口）"

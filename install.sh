@@ -53,7 +53,7 @@ else
   exit 1
 fi
 
-# 需要安装的 prompt 文件（sp- 前缀）
+# 需要安装的 prompt 文件
 PROMPT_FILES=(
   "sp-brainstorm.prompt.md"
   "sp-debug.prompt.md"
@@ -67,6 +67,12 @@ PROMPT_FILES=(
   "sp-code-review-req.prompt.md"
   "sp-code-review-recv.prompt.md"
   "sp-global.instructions.md"
+  "cc-start.prompt.md"
+  "cc-brainstorm.prompt.md"
+  "cc-design-system.prompt.md"
+  "cc-setup-engine.prompt.md"
+  "cc-gate-check.prompt.md"
+  "cc-dev-story.prompt.md"
 )
 
 if $UNINSTALL; then
@@ -274,6 +280,14 @@ echo "  /sp-worktree         Git Worktree 管理"
 echo "  /sp-branch-finish    完成开发分支"
 echo "  /sp-code-review-req  请求代码审查"
 echo "  /sp-code-review-recv 接收代码审查"
+echo ""
+echo "可用命令（Game Studio，在 Copilot Chat 中输入 / 触发）："
+echo "  /cc-start             项目引导上手"
+echo "  /cc-brainstorm        游戏概念头脑风暴"
+echo "  /cc-design-system     游戏系统 GDD 编写"
+echo "  /cc-setup-engine      配置游戏引擎"
+echo "  /cc-gate-check        阶段门禁检查"
+echo "  /cc-dev-story         实现开发故事"
 echo ""
 echo "可用 Agents（在 Copilot Chat 中以 @ 触发）："
 echo "  @gem-orchestrator    多代理编排（主入口）"
